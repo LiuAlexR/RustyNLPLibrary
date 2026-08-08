@@ -3,19 +3,28 @@ use std::{collections::HashMap, vec::Vec};
 /// Byte-Pair Encoding scheme
 /// @param corpus - text to tokenize
 /// @param num_tokens - maximum number of tokens in vocabulary plus default ASCII
-pub fn bpe_tokenize(corpus: &str, num_tokens: u64) -> Vec<String> {
+pub fn bpe_tokenize(corpus: &str, num_tokens: u64, only_new: bool) -> Vec<String> {
     let mut vocabulary: Vec<String> = (0..128).map(|b: u8| (b as char).to_string()).collect();
+
+    let mut new_vocab: Vec<String> = Vec::default();
 
     let arr: Vec<char> = corpus.chars().collect();
     for _ in 0..num_tokens {
         let token = combine(&arr, &vocabulary);
 
         if let Some(token) = token {
-            vocabulary.push(token)
+            if only_new {
+                new_vocab.push(token.clone());
+            }
+            vocabulary.push(token);
         }
     }
 
-    vocabulary
+    if only_new {
+        new_vocab
+    } else {
+        vocabulary
+    }
 }
 
 fn combine(arr: &[char], vocabulary: &[String]) -> Option<String> {
@@ -27,7 +36,7 @@ fn combine(arr: &[char], vocabulary: &[String]) -> Option<String> {
     let mut token: String = String::default();
 
     while i < len {
-        if arr[i as usize] == ' ' {
+        if arr[i as usize] == ' ' || arr[i as usize] == '\n' {
             i += 1;
             token.clear();
             continue;
