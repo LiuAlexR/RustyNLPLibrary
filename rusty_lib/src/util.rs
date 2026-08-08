@@ -1,7 +1,8 @@
 use std::{env, fs, path::Path};
 
 /// Reads the file name matching file_path within the 'texts' directory, found in the root of the Github repo. Used for development purposes.
-/// Arguments: 
+/// Arguments: the file name, e.g., "orwell_1984.txt"
+/// Returns the contents of the file, as a String
 pub fn retrieve_source(file_path: &str) -> String {
     // 'path' becomes the root of the Rust file; e.g., path = path/to/project/rusty_lib
     let path = match env::current_dir() {
