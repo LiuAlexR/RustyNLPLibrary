@@ -1,36 +1,46 @@
-// create_matrix from vector/array
-// gradient descent
-//
-
 use burn::backend::{Autodiff, Wgpu};
 use burn::tensor::backend::AutodiffBackend;
-use burn::tensor::{Distribution, Numeric, Shape, Tensor};
+use burn::tensor::{activation::relu, Distribution, Tensor};
 
 type Backend = Autodiff<Wgpu>;
+
+enum Word {
+    Target,
+    Context,
+    Negative,
+}
+
 // According to wikipedia, dimensionality is between 100-1000
 // Stack Overflow says 100-300
-const DIMENSIONS: usize = 2;
+const DIMENSIONS: usize = 3;
+const VOCAB: usize = 10;
 
-// takes ownership
-pub fn take_partial<D: AutodiffBackend>(a: Tensor<D, DIMENSIONS>, b: Tensor<D, DIMENSIONS>) {
-    let a = a.require_grad();
-    let b = b.require_grad();
-    let y = ((a.clone() * b.clone()) + a.clone()).backward();
+pub fn create_random_tensor() -> Tensor<Backend, 2> {
+    let device = Default::default();
+    let dis = Distribution::Uniform(0., 1.);
+    let shape = [VOCAB, DIMENSIONS];
 
-    let grad_a = a.grad(&y).unwrap();
-    let grad_b = b.grad(&y).unwrap();
+    Tensor::<Backend, 2>::random(shape, dis, &device)
+}
 
-    println!("dy/da = {}", grad_a.to_data());
-    println!("dy/db = {}", grad_b.to_data());
+pub fn find_derivative(
+    target: Tensor<Backend, 2>,
+    context: Tensor<Backend, 2>,
+    negatives: Option<Vec<Tensor<Backend, 2>>>,
+    w: Word,
+) -> Tensor<Backend, 2> {
+    match w {
+        Word::Context => (relu(target.clone() * context) - 1) * target,
+        Word::Target => (relu(target.clone() * context) - 1) * target, //TODO(TheSilentIce) impl ∂L/∂w
+        Word::Negative => (relu(target.clone() * context) - 1) * target, //TODO(TheSilentIce) impl ∂L/∂negative
+    }
 }
 
 pub fn start() {
-    // let device = Backend::default();
-    let device = Default::default();
-    let dis = Distribution::Uniform(0., 1.);
+    let a = create_random_tensor();
+    let b = create_random_tensor();
 
-    let shape = [50_000, 300];
+    let c = find_derivative(a, b, None, Word::Context);
 
-    let tensor = Tensor::<Backend, DIMENSIONS>::random(shape, dis, &device);
-    println!("{tensor}");
+    println!("dL/dCpos = {}", c.to_data());
 }
