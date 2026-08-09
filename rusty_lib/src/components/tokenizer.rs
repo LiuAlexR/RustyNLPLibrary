@@ -1,16 +1,28 @@
 use std::{collections::HashMap, time::Instant, vec::Vec};
 
 /// Byte-Pair Encoding scheme
-/// @param corpus - text to tokenize
-/// @param num_tokens - maximum number of tokens in vocabulary plus default ASCII
+///
+/// Implements Byte-Pair Encoding for tokenization on a given corpus.
+///
+/// # Arguments
+///
+/// * `corpus` - Text to tokenize
+/// * `num_tokens` - maximum vocabulary size alongside ASCII chars
+/// * `only_new` - whether to return the full vocabulary or just the new tokens
+///
+/// # Returns
+///
+/// A `Vec<String>` containing learned tokens(by default, includes ASCII chars)
+///
+/// # Examples
+///
+/// `let vocab = bpe_tokenize(corpus, 5000, true);`
 pub fn bpe_tokenize(corpus: &str, num_tokens: u64, only_new: bool) -> Vec<String> {
     let mut vocabulary: Vec<String> = (0..128).map(|b: u8| (b as char).to_string()).collect();
 
     let mut new_vocab: Vec<String> = Vec::default();
-
     let arr: Vec<char> = corpus.chars().collect();
-
-    let (token, mut map) = combine(&arr, &vocabulary);
+    let (token, mut map) = combine(&arr);
 
     if only_new {
         new_vocab.push(token.clone());
@@ -37,13 +49,7 @@ pub fn bpe_tokenize(corpus: &str, num_tokens: u64, only_new: bool) -> Vec<String
     }
 }
 
-// HashMap<String, tuple<u64, Vector<u64>
-// Stores the indices of tokens
-// so say we have <MA, <10, [3,20,30]>>
-//
-// then we skip to those indices, account for EOF and UNK
-// characters, combine with the other token, insert and update
-
+// takes last token added and goes through its indices vector to create new tokens
 fn combine_with_index(
     arr: &[char],
     vocabulary: &[String],
@@ -88,7 +94,8 @@ fn combine_with_index(
     Some(x)
 }
 
-fn combine(arr: &[char], vocabulary: &[String]) -> (String, HashMap<String, (u64, Vec<u64>)>) {
+// Generate all possible two letter tokens
+fn combine(arr: &[char]) -> (String, HashMap<String, (u64, Vec<u64>)>) {
     let mut map: HashMap<String, (u64, Vec<u64>)> = Default::default();
 
     let len: u64 = arr.len() as u64;
@@ -119,9 +126,6 @@ fn combine(arr: &[char], vocabulary: &[String]) -> (String, HashMap<String, (u64
 
         token.clear();
     }
-
-    // for ties, returns the last one
-    // not deterministic, as pointers are stored anywhere
 
     let (x, (_, _)) = match map.iter().max_by_key(|(_, (count, _))| count) {
         None => panic!("Error finding max"),
