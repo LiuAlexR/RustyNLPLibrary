@@ -30,7 +30,33 @@ pub fn create_random_tensor() -> Tensor<Backend, 1> {
     Tensor::<Backend, 1>::random(shape, dis, &device)
 }
 
-pub fn loss_func() {}
+/// Calculates loss of target, context word, and negatives
+///
+/// Page 109 of the book, eq 5.21 is what is implemented
+///
+/// # Arguments
+///
+/// * `target` - Target word's tensor
+/// * `context` - Context word of target word tensor
+/// * `negatives` - Vec of negatively sampled words' tensors
+///
+/// # Returns
+///
+/// A `Tensor<Backend,1>` representing the loss
+pub fn loss_func(
+    target: Tensor<Backend, 1>,
+    context: Tensor<Backend, 1>,
+    negatives: Vec<Tensor<Backend, 1>>,
+) -> Tensor<Backend, 1> {
+    let first = sigmoid(target.clone().dot(context)).log();
+    let mut second: Tensor<Backend, 1> = Tensor::<Backend, 1>::zeros_like(&target);
+
+    for t in negatives {
+        second = second.add(sigmoid(target.clone().dot(t.neg())).log());
+    }
+
+    second.add(first).neg()
+}
 
 /// Calculates partial derivatives of Loss function
 ///
