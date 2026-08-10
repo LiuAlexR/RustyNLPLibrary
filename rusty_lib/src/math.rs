@@ -1,7 +1,6 @@
 use burn::backend::{Autodiff, Wgpu};
 use burn::tensor::activation::sigmoid;
-use burn::tensor::backend::AutodiffBackend;
-use burn::tensor::{activation::relu, Distribution, Tensor};
+use burn::tensor::{Distribution, Tensor};
 
 type Backend = Autodiff<Wgpu>;
 
@@ -16,6 +15,13 @@ enum Word {
 const DIMENSIONS: usize = 3;
 const VOCAB: usize = 10;
 
+/// Creates random tensor
+///
+/// Generates a 1D tensor with random initialized values
+///
+/// # Returns
+///
+/// a `Tensor<Backend,1>` with random initialized values
 pub fn create_random_tensor() -> Tensor<Backend, 1> {
     let device = Default::default();
     let dis = Distribution::Uniform(0., 1.);
@@ -24,6 +30,17 @@ pub fn create_random_tensor() -> Tensor<Backend, 1> {
     Tensor::<Backend, 1>::random(shape, dis, &device)
 }
 
+/// Calculates partial derivatives of Loss function
+///
+/// Partial derivatives of Loss function with respect to
+/// target, context word, and each negative word.
+/// The partial derviative is picked via the Word enum.
+///
+/// # Returns
+///
+/// A `Vec<Tensor<Backend,1>>` that has all partial derivative values
+/// For target and context, it will still return a `Vec<Tensor<Backend,1>>`
+/// with one element
 pub fn find_derivative(
     target: Tensor<Backend, 1>,
     context: Tensor<Backend, 1>,
@@ -40,12 +57,13 @@ pub fn find_derivative(
             for t in x {
                 a = a.add(t);
             }
-
             vec![a]
         }
     }
 }
 
+// calculates partial derivative of negatives and multiplies
+// with either target or the negative vector, dependent on with_target
 fn get_negatives(
     target: Tensor<Backend, 1>,
     negatives: Vec<Tensor<Backend, 1>>,
@@ -66,6 +84,7 @@ fn get_negatives(
     v
 }
 
+// test func, to be removed
 pub fn start() {
     let a = create_random_tensor();
     let b = create_random_tensor();
