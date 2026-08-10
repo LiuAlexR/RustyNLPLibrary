@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Instant, vec::Vec};
+use std::{collections::HashMap, vec::Vec};
 
 /// Byte-Pair Encoding scheme
 ///
@@ -30,9 +30,9 @@ pub fn bpe_tokenize(corpus: &str, num_tokens: u64, only_new: bool) -> Vec<String
     vocabulary.push(token);
 
     for _ in 1..num_tokens {
-        let x = Instant::now();
+
         let token = combine_with_index(&arr, &vocabulary, &mut map);
-        println!("Time: {}μs", x.elapsed().as_micros());
+
 
         if let Some(token) = token {
             if only_new {
@@ -157,5 +157,8 @@ fn find_largest_token(arr: &[char], mut idx: u64, vocabulary: &[String]) -> Stri
     token.pop();
     token
 }
-
+pub fn bpe_encoder(vocabulary: &Vec<String>, text: &String) -> Vec<String> {
+    let x: Vec<String> = Vec::new();
+    x
+}
 // TODO(LiuAlexR) - implement function to tokenize future inputs
