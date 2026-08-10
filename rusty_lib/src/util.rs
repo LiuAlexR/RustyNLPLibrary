@@ -69,5 +69,7 @@ pub fn vec_to_string(delimiter: &str, the_vec: &Vec<String>) -> String {
 }
 
 pub fn string_to_vec(delimiter: &str, the_string: &String) -> Vec<String> {
-    the_string.split(delimiter).map(String::from).collect()
+    let mut the_vec: Vec<String> = the_string.split(delimiter).map(String::from).collect();
+    the_vec.retain(|x| x != "");
+    the_vec
 }
