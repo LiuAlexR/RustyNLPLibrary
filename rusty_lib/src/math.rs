@@ -19,7 +19,7 @@ const VOCAB: usize = 10;
 pub fn create_random_tensor() -> Tensor<Backend, 1> {
     let device = Default::default();
     let dis = Distribution::Uniform(0., 1.);
-    let shape = [VOCAB, DIMENSIONS];
+    let shape = [DIMENSIONS];
 
     Tensor::<Backend, 1>::random(shape, dis, &device)
 }
@@ -71,7 +71,7 @@ pub fn start() {
     let b = create_random_tensor();
     let x = vec![a.clone(), b.clone()];
 
-    let c = find_derivative(a, b, x, Word::Context);
+    let c = find_derivative(a, b, x, Word::Negative).pop().unwrap();
 
-    println!("dL/dCpos = {}", c.to_data());
+    println!("dL/dCpos ={:?}", c.to_data());
 }
