@@ -95,6 +95,7 @@ fn combine_with_index(
 }
 
 // Generate all possible two letter tokens
+// TODO spaces can be the beginning of a token but not end
 fn combine(arr: &[char]) -> (String, HashMap<String, (u64, Vec<u64>)>) {
     let mut map: HashMap<String, (u64, Vec<u64>)> = Default::default();
 

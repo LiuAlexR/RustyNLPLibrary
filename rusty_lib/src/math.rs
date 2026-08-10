@@ -1,4 +1,5 @@
 use burn::backend::{Autodiff, Wgpu};
+use burn::tensor::activation::sigmoid;
 use burn::tensor::backend::AutodiffBackend;
 use burn::tensor::{activation::relu, Distribution, Tensor};
 
@@ -15,32 +16,62 @@ enum Word {
 const DIMENSIONS: usize = 3;
 const VOCAB: usize = 10;
 
-pub fn create_random_tensor() -> Tensor<Backend, 2> {
+pub fn create_random_tensor() -> Tensor<Backend, 1> {
     let device = Default::default();
     let dis = Distribution::Uniform(0., 1.);
     let shape = [VOCAB, DIMENSIONS];
 
-    Tensor::<Backend, 2>::random(shape, dis, &device)
+    Tensor::<Backend, 1>::random(shape, dis, &device)
 }
 
 pub fn find_derivative(
-    target: Tensor<Backend, 2>,
-    context: Tensor<Backend, 2>,
-    negatives: Option<Vec<Tensor<Backend, 2>>>,
+    target: Tensor<Backend, 1>,
+    context: Tensor<Backend, 1>,
+    negatives: Vec<Tensor<Backend, 1>>,
     w: Word,
-) -> Tensor<Backend, 2> {
+) -> Vec<Tensor<Backend, 1>> {
     match w {
-        Word::Context => (relu(target.clone() * context) - 1) * target,
-        Word::Target => (relu(target.clone() * context) - 1) * target, //TODO(TheSilentIce) impl ∂L/∂w
-        Word::Negative => (relu(target.clone() * context) - 1) * target, //TODO(TheSilentIce) impl ∂L/∂negative
+        Word::Context => vec![((sigmoid(target.clone().dot(context)) - 1) * target)],
+        Word::Target => get_negatives(target.clone(), negatives.clone(), true),
+        Word::Negative => {
+            let x = get_negatives(target.clone(), negatives.clone(), false);
+            let mut a: Tensor<Backend, 1> = Tensor::zeros_like(&target);
+
+            for t in x {
+                a = a.add(t);
+            }
+
+            vec![a]
+        }
     }
+}
+
+fn get_negatives(
+    target: Tensor<Backend, 1>,
+    negatives: Vec<Tensor<Backend, 1>>,
+    with_target: bool,
+) -> Vec<Tensor<Backend, 1>> {
+    let mut v = vec![];
+
+    for t in negatives {
+        if with_target {
+            let result = target.clone().dot(t.clone()).mul(target.clone());
+            v.push(result);
+        } else {
+            let result = target.clone().dot(t.clone()).mul(t);
+            v.push(result);
+        }
+    }
+
+    v
 }
 
 pub fn start() {
     let a = create_random_tensor();
     let b = create_random_tensor();
+    let x = vec![a.clone(), b.clone()];
 
-    let c = find_derivative(a, b, None, Word::Context);
+    let c = find_derivative(a, b, x, Word::Context);
 
     println!("dL/dCpos = {}", c.to_data());
 }
