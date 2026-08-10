@@ -30,11 +30,18 @@ pub fn create_random_tensor() -> Tensor<Backend, 1> {
     Tensor::<Backend, 1>::random(shape, dis, &device)
 }
 
+pub fn loss_func() {}
+
 /// Calculates partial derivatives of Loss function
 ///
 /// Partial derivatives of Loss function with respect to
 /// target, context word, and each negative word.
 /// The partial derviative is picked via the Word enum.
+///
+/// # Arguments
+/// * `target` - Target word's tensor
+/// * `context` - Context word of target word tensor
+/// * `negatives` - Vec of negatively sampled words' tensors
 ///
 /// # Returns
 ///
