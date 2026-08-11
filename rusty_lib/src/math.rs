@@ -12,8 +12,8 @@ pub enum Word {
 
 // According to wikipedia, dimensionality is between 100-1000
 // Stack Overflow says 100-300
-const DIMENSIONS: usize = 3;
-const VOCAB: usize = 10;
+pub const DIMENSIONS: usize = 3;
+pub const VOCAB: usize = 10;
 
 /// Creates random tensor
 ///
@@ -125,5 +125,5 @@ pub fn start() {
 
     let c = find_derivative(a, b, x, Word::Negative).pop().unwrap();
 
-    println!("dL/dCpos ={:?}", c.to_data());
+    println!("dL/dCpos ={}", c.to_data());
 }
