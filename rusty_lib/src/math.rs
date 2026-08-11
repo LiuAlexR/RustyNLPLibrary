@@ -2,9 +2,9 @@ use burn::backend::{Autodiff, Wgpu};
 use burn::tensor::activation::sigmoid;
 use burn::tensor::{Distribution, Tensor};
 
-type Backend = Autodiff<Wgpu>;
+pub type Backend = Autodiff<Wgpu>;
 
-enum Word {
+pub enum Word {
     Target,
     Context,
     Negative,
