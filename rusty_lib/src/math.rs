@@ -30,6 +30,13 @@ pub fn create_random_tensor() -> Tensor<Backend, 1> {
     Tensor::<Backend, 1>::random(shape, dis, &device)
 }
 
+pub fn create_random_matrix() -> Tensor<Backend, 2> {
+    let device = Default::default();
+    let dis = Distribution::Uniform(0., 1.);
+    let shape = [VOCAB, DIMENSIONS];
+    Tensor::<Backend, 2>::random(shape, dis, &device)
+}
+
 /// Calculates loss of target, context word, and negatives
 ///
 /// Page 109 of the book, eq 5.21 is what is implemented
@@ -117,13 +124,38 @@ fn get_negatives(
     v
 }
 
+/// Replaces matrix row vec with updated values
+///
+/// # Arguments
+/// * `matrix` - Matrix to update
+/// * `new_row` - row with new values
+/// * `idx` - index of row vector to update
+///
+/// # Returns
+///
+/// A `Tensor<Backend,2>` with the specified index row vector
+/// updated
+pub fn update_matrix(
+    matrix: Tensor<Backend, 2>,
+    new_row: Tensor<Backend, 2>,
+    idx: usize,
+) -> Tensor<Backend, 2> {
+    assert!(idx >= 1, "Index must 1-indexed and >= 1");
+    assert!(idx < VOCAB, "Index must be less than VOCAB");
+    matrix
+        .clone()
+        .slice_assign([idx - 1..idx, 0..DIMENSIONS], new_row)
+}
+
 // test func, to be removed
 pub fn start() {
     let a = create_random_tensor();
+    println!("a = {}", a);
     let b = create_random_tensor();
-    let x = vec![a.clone(), b.clone()];
+    println!("b = {}", b);
+    let x = vec![create_random_tensor(), create_random_tensor()];
 
     let c = find_derivative(a, b, x, Word::Negative).pop().unwrap();
 
-    println!("dL/dCpos ={}", c.to_data());
+    println!("dL/dCpos ={}", c);
 }
