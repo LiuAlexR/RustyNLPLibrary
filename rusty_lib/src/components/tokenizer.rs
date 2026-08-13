@@ -170,28 +170,47 @@ fn find_largest_token(arr: &[char], mut idx: u64, vocabulary: &[String]) -> Stri
     token
 }
 pub fn bpe_encoder(vocabulary: &Vec<String>, text: &String) -> Vec<String> {
+    // Pairs each string with corresponding idx in vocab
+    // Earlier strings in vocab occur more than later ones,
+    // thus natural priority arises
+    let rank: HashMap<&str, usize> = vocabulary
+        .iter()
+        .enumerate()
+        .map(|(i, s)| (s.as_str(), i))
+        .collect();
+
     let words: Vec<&str> = text.split_whitespace().collect();
-    let mut broken_words: Vec<Vec<String>> = Vec::new();
-    for i in &words {
-        let mut chars: Vec<String> = i.chars().map(String::from).collect();
-        chars.insert(0, " ".to_string());
-        broken_words.push(chars);
-    }
-    for i in vocabulary {
-        for j in broken_words.iter_mut() {
-            let mut k = 0;
-            while k + 1 < j.len() {
-                let mut temp = j[k].clone();
-                temp.push_str(&j[k + 1].clone());
-                if temp == *i {
-                    j[k] = temp;
-                    j.remove(k + 1);
-                } else {
-                    k += 1;
+    let mut result = Vec::new();
+
+    for w in words {
+        let mut tokens: Vec<String> = std::iter::once(" ".to_string())
+            .chain(w.chars().map(String::from))
+            .collect();
+
+        loop {
+            // find the single best (lowest-rank) merge available in this word
+            let mut best: Option<(usize, usize)> = None; // (rank, position)
+            for k in 0..tokens.len().saturating_sub(1) {
+                let mut pair = tokens[k].clone();
+                pair.push_str(&tokens[k + 1]);
+
+                // If pair exists in rank map and if the priority is higher
+                if let Some(&r) = rank.get(pair.as_str())
+                    && best.is_none_or(|(br, _)| r < br) 
+                {
+                        best = Some((r, k));
                 }
             }
+            match best {
+                Some((_, k)) => {
+                    let merged = tokens[k].clone() + &tokens[k + 1];
+                    tokens[k] = merged;
+                    tokens.remove(k + 1);
+                }
+                None => break,
+            }
         }
+        result.extend(tokens);
     }
-    broken_words.into_iter().flatten().collect()
+    result
 }
-// TODO(LiuAlexR) - implement function to tokenize future inputs
