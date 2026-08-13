@@ -155,7 +155,7 @@ pub fn update_matrix(
 /// # Returns
 ///
 /// A `Tensor<Backend,1>` representing row vec with incremented value
-pub fn increment(row: Tensor<Backend, 1>, idx: usize) -> Tensor<Backend, 1> {
+pub fn increment_row(row: Tensor<Backend, 1>, idx: usize) -> Tensor<Backend, 1> {
     assert!(idx >= 1, "Index must be 1-indexed and >= 1");
     assert!(idx <= VOCAB, "Index must be <= VOCAB");
 
@@ -165,15 +165,37 @@ pub fn increment(row: Tensor<Backend, 1>, idx: usize) -> Tensor<Backend, 1> {
     row.slice_assign([zero_idx..zero_idx + 1], bumped)
 }
 
+/// Increments Wij in matrix, where W is word, i is row vec and j is column
+///
+/// # Arguments
+/// * 'matrix' - matrix to update
+/// * 'vocab_idx' - index of row vec(Word)
+/// * 'co_word_idx' - index of co_word to increment
+///
+/// # Returns
+/// A `Tensor<Backend,2>` represnting 2D matrix
+pub fn increment_row_in_matrix(
+    matrix: Tensor<Backend, 2>,
+    vocab_idx: usize,
+    co_word_idx: usize,
+) -> Tensor<Backend, 2> {
+    assert!(vocab_idx >= 1, "Index must be 1-indexed and >= 1");
+    assert!(vocab_idx <= VOCAB, "Index must be <= VOCAB");
+    assert!(co_word_idx >= 1, "Index must be 1-indexed and >= 1");
+    assert!(co_word_idx <= VOCAB, "Index must be <= VOCAB");
+
+    let row: Tensor<Backend, 1> = matrix.clone().slice([vocab_idx - 1..vocab_idx]).squeeze();
+    let bumped_row = increment_row(row, co_word_idx);
+    let bumped_2d: Tensor<Backend, 2> = bumped_row.unsqueeze();
+    matrix.slice_assign([vocab_idx - 1..vocab_idx], bumped_2d)
+}
+
 // test func, to be removed
 pub fn start() {
-    let a = create_random_tensor();
-    println!("a = {}", a);
-    let b = create_random_tensor();
-    println!("b = {}", b);
-    let x = vec![create_random_tensor(), create_random_tensor()];
+    let mut mat = Tensor::<Backend, 2>::from([[1, 2, 3], [2, 3, 4]]);
 
-    let c = find_derivative(a, b, x, Word::Negative).pop().unwrap();
+    println!("mat = {}", mat);
+    mat = increment_row_in_matrix(mat, 1, 1);
 
-    println!("dL/dCpos ={}", c);
+    println!("mat = {}", mat);
 }
