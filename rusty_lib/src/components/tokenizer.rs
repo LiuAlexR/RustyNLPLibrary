@@ -1,4 +1,9 @@
-use std::{collections::{HashMap, VecDeque}, vec::Vec};
+use crate::math::{Backend, VOCAB};
+use burn::Tensor;
+use std::{
+    collections::{HashMap, VecDeque},
+    vec::Vec,
+};
 
 /// Byte-Pair Encoding scheme
 ///
@@ -30,14 +35,13 @@ pub fn bpe_tokenize(corpus: &str, num_tokens: u64, only_new: bool) -> Vec<String
     vocabulary.push(token);
 
     for _ in 1..num_tokens {
-
         let token = combine_with_index(&arr, &vocabulary, &mut map);
-
 
         if let Some(token) = token {
             if only_new {
                 new_vocab.push(token.clone());
             }
+            println!("{}", token);
             vocabulary.push(token);
         }
     }
@@ -98,42 +102,49 @@ fn combine_with_index(
 // TODO spaces can be the beginning of a token but not end
 fn combine(arr: &[char]) -> (String, HashMap<String, (u64, Vec<u64>)>) {
     let mut map: HashMap<String, (u64, Vec<u64>)> = Default::default();
+    let len = arr.len();
 
-    let len: u64 = arr.len() as u64;
-    let mut i = 0;
+    for i in 0..len.saturating_sub(1) {
+        let a = arr[i];
+        let b = arr[i + 1];
 
-    let mut token: String = String::default();
-
-    while i < len {
-        if arr[i as usize] == ' ' || arr[i as usize] == '\n' {
-            i += 1;
-            token.clear();
+        if a == '\n' || b == ' ' || b == '\n' {
             continue;
         }
 
-        token.push(arr[i as usize]);
+        let mut token = String::with_capacity(2);
+        token.push(a);
+        token.push(b);
 
-        if token.len() == 1 {
-            i += 1;
-            continue;
-        }
+        let index = (i + 1) as u64;
 
-        map.entry(token.clone())
+        map.entry(token)
             .and_modify(|(count, indices)| {
                 *count += 1;
-                indices.push(i);
+                indices.push(index);
             })
-            .or_insert((1, vec![i]));
-
-        token.clear();
+            .or_insert((1, vec![index]));
     }
-
-    let (x, (_, _)) = match map.iter().max_by_key(|(_, (count, _))| count) {
-        None => panic!("Error finding max"),
-        Some((x, value)) => (x, value),
-    };
+    let (x, _) = map
+        .iter()
+        .max_by_key(|(_, (count, _))| count)
+        .expect("Error finding max");
 
     (x.clone(), map)
+}
+
+// easiest way to do this is do a O(N) op and create a vec of tokens fully merged
+// then for each word, just add the first N words that come before and after
+// cash?
+pub fn co_occurence(arr: &[char], vocab: Vec<String>, context_window: u64) -> Tensor<Backend, 2> {
+    let device = Default::default();
+    let shape = [VOCAB];
+
+    let mut ten = Tensor::<Backend, 2>::zeros(shape, &device);
+    let len = arr.len() as u64;
+    let mut i = 0;
+
+    ten
 }
 
 fn find_largest_token(arr: &[char], mut idx: u64, vocabulary: &[String]) -> String {
@@ -162,29 +173,25 @@ pub fn bpe_encoder(vocabulary: &Vec<String>, text: &String) -> Vec<String> {
     let words: Vec<&str> = text.split_whitespace().collect();
     let mut broken_words: Vec<Vec<String>> = Vec::new();
     for i in &words {
-        let mut chars: Vec<String> = (*i).chars().map(String::from).collect();
+        let mut chars: Vec<String> = i.chars().map(String::from).collect();
         chars.insert(0, " ".to_string());
         broken_words.push(chars);
     }
     for i in vocabulary {
-        for j in 0..broken_words.len() {
-            for k in 0..(j - 1) {
-                let mut temp = broken_words[j][k].clone();
-                temp.push_str(&broken_words[j][k + 1].clone());
+        for j in broken_words.iter_mut() {
+            let mut k = 0;
+            while k + 1 < j.len() {
+                let mut temp = j[k].clone();
+                temp.push_str(&j[k + 1].clone());
                 if temp == *i {
-                    broken_words[j].remove(k);
-                    broken_words[j].remove(k);
-                    broken_words[j].insert(k, temp);
+                    j[k] = temp;
+                    j.remove(k + 1);
+                } else {
+                    k += 1;
                 }
             }
         }
     }
-    let mut returnable: Vec<String> = Vec::new();
-    for i in 0..broken_words.len() {
-        for j in 0..broken_words[i].len() {
-            returnable.push(broken_words[i][j].clone());
-        }
-    }
-    returnable
+    broken_words.into_iter().flatten().collect()
 }
 // TODO(LiuAlexR) - implement function to tokenize future inputs
