@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Instant, vec::Vec};
+use std::{collections::{HashMap, VecDeque}, vec::Vec};
 
 /// Byte-Pair Encoding scheme
 ///
@@ -30,9 +30,9 @@ pub fn bpe_tokenize(corpus: &str, num_tokens: u64, only_new: bool) -> Vec<String
     vocabulary.push(token);
 
     for _ in 1..num_tokens {
-        let x = Instant::now();
+
         let token = combine_with_index(&arr, &vocabulary, &mut map);
-        println!("Time: {}μs", x.elapsed().as_micros());
+
 
         if let Some(token) = token {
             if only_new {
@@ -95,6 +95,7 @@ fn combine_with_index(
 }
 
 // Generate all possible two letter tokens
+// TODO spaces can be the beginning of a token but not end
 fn combine(arr: &[char]) -> (String, HashMap<String, (u64, Vec<u64>)>) {
     let mut map: HashMap<String, (u64, Vec<u64>)> = Default::default();
 
@@ -157,5 +158,33 @@ fn find_largest_token(arr: &[char], mut idx: u64, vocabulary: &[String]) -> Stri
     token.pop();
     token
 }
-
+pub fn bpe_encoder(vocabulary: &Vec<String>, text: &String) -> Vec<String> {
+    let words: Vec<&str> = text.split_whitespace().collect();
+    let mut broken_words: Vec<Vec<String>> = Vec::new();
+    for i in &words {
+        let mut chars: Vec<String> = (*i).chars().map(String::from).collect();
+        chars.insert(0, " ".to_string());
+        broken_words.push(chars);
+    }
+    for i in vocabulary {
+        for j in 0..broken_words.len() {
+            for k in 0..(j - 1) {
+                let mut temp = broken_words[j][k].clone();
+                temp.push_str(&broken_words[j][k + 1].clone());
+                if temp == *i {
+                    broken_words[j].remove(k);
+                    broken_words[j].remove(k);
+                    broken_words[j].insert(k, temp);
+                }
+            }
+        }
+    }
+    let mut returnable: Vec<String> = Vec::new();
+    for i in 0..broken_words.len() {
+        for j in 0..broken_words[i].len() {
+            returnable.push(broken_words[i][j].clone());
+        }
+    }
+    returnable
+}
 // TODO(LiuAlexR) - implement function to tokenize future inputs
