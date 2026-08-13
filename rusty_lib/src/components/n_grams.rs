@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::components::tokenizer::bpe_tokenize;
 
 pub fn print_test() -> () {
