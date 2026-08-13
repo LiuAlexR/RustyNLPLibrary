@@ -141,10 +141,28 @@ pub fn update_matrix(
     idx: usize,
 ) -> Tensor<Backend, 2> {
     assert!(idx >= 1, "Index must 1-indexed and >= 1");
-    assert!(idx < VOCAB, "Index must be less than VOCAB");
-    matrix
-        .clone()
-        .slice_assign([idx - 1..idx, 0..DIMENSIONS], new_row)
+    assert!(idx <= VOCAB, "Index must be <= VOCAB");
+    matrix.slice_assign([idx - 1..idx, 0..DIMENSIONS], new_row)
+}
+
+/// Increments value at idx of row vec by 1
+///
+/// # Arguments
+///
+/// * `row` - row to be updated
+/// * `idx` - index of row to upate
+///
+/// # Returns
+///
+/// A `Tensor<Backend,1>` representing row vec with incremented value
+pub fn increment(row: Tensor<Backend, 1>, idx: usize) -> Tensor<Backend, 1> {
+    assert!(idx >= 1, "Index must be 1-indexed and >= 1");
+    assert!(idx <= VOCAB, "Index must be <= VOCAB");
+
+    let zero_idx = idx - 1;
+    let current = row.clone().slice([zero_idx..zero_idx + 1]);
+    let bumped = current + 1.0;
+    row.slice_assign([zero_idx..zero_idx + 1], bumped)
 }
 
 // test func, to be removed
