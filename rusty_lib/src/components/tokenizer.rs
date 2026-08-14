@@ -214,3 +214,33 @@ pub fn bpe_encoder(vocabulary: &Vec<String>, text: &String) -> Vec<String> {
     }
     result
 }
+
+pub fn bpe_encoder_a(vocabulary: &Vec<String>, text: &String) -> Vec<String> {
+    let words: Vec<&str> = text.split_whitespace().collect();
+    let mut broken_words: Vec<Vec<String>> = Vec::new();
+    for i in &words {
+        let mut chars: Vec<String> = (*i).chars().map(String::from).collect();
+        chars.insert(0, " ".to_string());
+        broken_words.push(chars);
+    }
+    for i in vocabulary {
+        for j in 0..broken_words.len() {
+            for k in 0..(broken_words[j].len()-1) {
+                let mut temp = broken_words[j][k].clone();
+                temp.push_str(&broken_words[j][k + 1].clone());
+                if temp == *i {
+                    broken_words[j].remove(k);
+                    broken_words[j].remove(k);
+                    broken_words[j].insert(k, temp);
+                }
+            }
+        }
+    }
+    let mut res: Vec<String> = Vec::new();
+    for i in broken_words {
+        for j in i {
+            res.push(j);
+        }
+    }
+    res
+}

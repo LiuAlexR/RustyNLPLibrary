@@ -12,3 +12,6 @@ pub fn print_test() -> () {
     //let v = bpe_tokenize(x, 200);
     //println!("{:?}", v);
 }
+pub fn bigram_creation(corpus: &str, vocab: &Vec<String>) -> () {
+    
+}
