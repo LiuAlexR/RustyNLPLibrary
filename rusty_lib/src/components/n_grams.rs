@@ -22,28 +22,34 @@ pub fn unigram_creation(vocab_size: usize, corpus: &Vec<usize>) -> Vec<usize> {
 pub fn bigram_creation(vocab_size: usize, corpus: &Vec<usize>) -> Vec<HashMap<usize, usize>> {
     // Array that counts the words that appear after the word in the array
     let mut vocab_arr: Vec<HashMap<usize, usize>> = vec![HashMap::new(); vocab_size];
-    for i in 0..(vocab_arr.len() - 1) {
+    for i in 0..(corpus.len() - 1) {
         vocab_arr[corpus[i]].entry(corpus[i + 1]).and_modify(|counter| *counter += 1).or_insert(1);
     }
     vocab_arr
 }
 pub fn bigram_test(counts: &Vec<HashMap<usize, usize>>, unigram: &Vec<usize>) -> Vec<usize> {
-    let mut starting: usize = 376; // I
-    let mut res: Vec<usize> = Vec::new();
-    for _ in 0..5 {
+    let vocab_size = counts.len();
+    let mut starting: usize = 3198;
+    let mut res = Vec::with_capacity(10);
+
+    for _ in 0..10 {
         let cur_token_bigram = &counts[starting];
-        let mut cur_token_prob: isize = (unigram[starting] + counts.len()) as isize;
-        let rand_num: isize = rand::random_range(0..(cur_token_prob as usize + 1)) as isize;
-        let mut i: usize = 0;
-        while cur_token_prob >= 0 {
-            let current_val = match cur_token_bigram.get(&i) {
-                Some(x) => x + 1,
-                None => 1,
+        let total_weight = unigram[starting];
+        let mut rand_num = rand::random_range(0..total_weight);
+
+        for token in 0..vocab_size {
+            let current_val = match cur_token_bigram.get(&token) {
+                Some(x) => *x,
+                None => 0,
             };
-            cur_token_prob -= current_val as isize;
-            i = i + 1;
+
+            if rand_num < current_val {
+                res.push(token);
+                starting = token;
+                break;
+            }
+            rand_num -= current_val;
         }
-        res.push(i);
     }
     res
 }

@@ -26,4 +26,9 @@ fn main() {
     let out = n_grams::bigram_test(&bigram, &unigram);
     let out_text: Vec<&str> = out.into_iter().map(|x| tokenizer::usize_to_token(&vocab, x)).collect();
     println!("{:?}", out_text);
+    let test_str = " my text";
+    let test_tokens = tokenizer::bpe_encoder(&vocab, &test_str.to_string());
+    let int_tokens = tokenizer::text_to_indices(&vocab, &test_tokens);
+    println!("{:?}", test_tokens);
+    println!("{:?}", int_tokens);
 }
