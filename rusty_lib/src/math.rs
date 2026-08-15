@@ -30,6 +30,13 @@ pub fn create_random_tensor() -> Tensor<Backend, 1> {
     Tensor::<Backend, 1>::random(shape, dis, &device)
 }
 
+pub fn create_random_matrix() -> Tensor<Backend, 2> {
+    let device = Default::default();
+    let dis = Distribution::Uniform(0., 1.);
+    let shape = [VOCAB, DIMENSIONS];
+    Tensor::<Backend, 2>::random(shape, dis, &device)
+}
+
 /// Calculates loss of target, context word, and negatives
 ///
 /// Page 109 of the book, eq 5.21 is what is implemented
@@ -117,13 +124,78 @@ fn get_negatives(
     v
 }
 
+/// Replaces matrix row vec with updated values
+///
+/// # Arguments
+/// * `matrix` - Matrix to update
+/// * `new_row` - row with new values
+/// * `idx` - index of row vector to update
+///
+/// # Returns
+///
+/// A `Tensor<Backend,2>` with the specified index row vector
+/// updated
+pub fn update_matrix(
+    matrix: Tensor<Backend, 2>,
+    new_row: Tensor<Backend, 2>,
+    idx: usize,
+) -> Tensor<Backend, 2> {
+    assert!(idx >= 1, "Index must 1-indexed and >= 1");
+    assert!(idx <= VOCAB, "Index must be <= VOCAB");
+    matrix.slice_assign([idx - 1..idx, 0..DIMENSIONS], new_row)
+}
+
+/// Increments value at idx of row vec by 1
+///
+/// # Arguments
+///
+/// * `row` - row to be updated
+/// * `idx` - index of row to upate
+///
+/// # Returns
+///
+/// A `Tensor<Backend,1>` representing row vec with incremented value
+pub fn increment_row(row: Tensor<Backend, 1>, idx: usize) -> Tensor<Backend, 1> {
+    assert!(idx >= 1, "Index must be 1-indexed and >= 1");
+    assert!(idx <= VOCAB, "Index must be <= VOCAB");
+
+    let zero_idx = idx - 1;
+    let current = row.clone().slice([zero_idx..zero_idx + 1]);
+    let bumped = current + 1.0;
+    row.slice_assign([zero_idx..zero_idx + 1], bumped)
+}
+
+/// Increments Wij in matrix, where W is word, i is row vec and j is column
+///
+/// # Arguments
+/// * 'matrix' - matrix to update
+/// * 'vocab_idx' - index of row vec(Word)
+/// * 'co_word_idx' - index of co_word to increment
+///
+/// # Returns
+/// A `Tensor<Backend,2>` represnting 2D matrix
+pub fn increment_row_in_matrix(
+    matrix: Tensor<Backend, 2>,
+    vocab_idx: usize,
+    co_word_idx: usize,
+) -> Tensor<Backend, 2> {
+    assert!(vocab_idx >= 1, "Index must be 1-indexed and >= 1");
+    assert!(vocab_idx <= VOCAB, "Index must be <= VOCAB");
+    assert!(co_word_idx >= 1, "Index must be 1-indexed and >= 1");
+    assert!(co_word_idx <= VOCAB, "Index must be <= VOCAB");
+
+    let row: Tensor<Backend, 1> = matrix.clone().slice([vocab_idx - 1..vocab_idx]).squeeze();
+    let bumped_row = increment_row(row, co_word_idx);
+    let bumped_2d: Tensor<Backend, 2> = bumped_row.unsqueeze();
+    matrix.slice_assign([vocab_idx - 1..vocab_idx], bumped_2d)
+}
+
 // test func, to be removed
 pub fn start() {
-    let a = create_random_tensor();
-    let b = create_random_tensor();
-    let x = vec![a.clone(), b.clone()];
+    let mut mat = Tensor::<Backend, 2>::from([[1, 2, 3], [2, 3, 4]]);
 
-    let c = find_derivative(a, b, x, Word::Negative).pop().unwrap();
+    println!("mat = {}", mat);
+    mat = increment_row_in_matrix(mat, 1, 1);
 
-    println!("dL/dCpos ={}", c.to_data());
+    println!("mat = {}", mat);
 }

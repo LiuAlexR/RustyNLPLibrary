@@ -1,4 +1,9 @@
-use std::{collections::{HashMap, VecDeque}, vec::Vec};
+use crate::math::{Backend, VOCAB};
+use burn::Tensor;
+use std::{
+    collections::{HashMap, VecDeque},
+    vec::Vec,
+};
 
 /// Byte-Pair Encoding scheme
 ///
@@ -30,14 +35,13 @@ pub fn bpe_tokenize(corpus: &str, num_tokens: u64, only_new: bool) -> Vec<String
     vocabulary.push(token);
 
     for _ in 1..num_tokens {
-
         let token = combine_with_index(&arr, &vocabulary, &mut map);
-
 
         if let Some(token) = token {
             if only_new {
                 new_vocab.push(token.clone());
             }
+            // println!("{}", token);
             vocabulary.push(token);
         }
     }
@@ -98,42 +102,49 @@ fn combine_with_index(
 // TODO spaces can be the beginning of a token but not end
 fn combine(arr: &[char]) -> (String, HashMap<String, (u64, Vec<u64>)>) {
     let mut map: HashMap<String, (u64, Vec<u64>)> = Default::default();
+    let len = arr.len();
 
-    let len: u64 = arr.len() as u64;
-    let mut i = 0;
+    for i in 0..len.saturating_sub(1) {
+        let a = arr[i];
+        let b = arr[i + 1];
 
-    let mut token: String = String::default();
-
-    while i < len {
-        if arr[i as usize] == ' ' || arr[i as usize] == '\n' {
-            i += 1;
-            token.clear();
+        if a == '\n' || b == ' ' || b == '\n' {
             continue;
         }
 
-        token.push(arr[i as usize]);
+        let mut token = String::with_capacity(2);
+        token.push(a);
+        token.push(b);
 
-        if token.len() == 1 {
-            i += 1;
-            continue;
-        }
+        let index = (i + 1) as u64;
 
-        map.entry(token.clone())
+        map.entry(token)
             .and_modify(|(count, indices)| {
                 *count += 1;
-                indices.push(i);
+                indices.push(index);
             })
-            .or_insert((1, vec![i]));
-
-        token.clear();
+            .or_insert((1, vec![index]));
     }
-
-    let (x, (_, _)) = match map.iter().max_by_key(|(_, (count, _))| count) {
-        None => panic!("Error finding max"),
-        Some((x, value)) => (x, value),
-    };
+    let (x, _) = map
+        .iter()
+        .max_by_key(|(_, (count, _))| count)
+        .expect("Error finding max");
 
     (x.clone(), map)
+}
+
+// easiest way to do this is do a O(N) op and create a vec of tokens fully merged
+// then for each word, just add the first N words that come before and after
+// cash?
+pub fn co_occurence(arr: &[char], vocab: Vec<String>, context_window: u64) -> Tensor<Backend, 2> {
+    let device = Default::default();
+    let shape = [VOCAB];
+
+    let mut ten = Tensor::<Backend, 2>::zeros(shape, &device);
+    let len = arr.len() as u64;
+    let mut i = 0;
+
+    ten
 }
 
 fn find_largest_token(arr: &[char], mut idx: u64, vocabulary: &[String]) -> String {
@@ -159,6 +170,52 @@ fn find_largest_token(arr: &[char], mut idx: u64, vocabulary: &[String]) -> Stri
     token
 }
 pub fn bpe_encoder(vocabulary: &Vec<String>, text: &String) -> Vec<String> {
+    // Pairs each string with corresponding idx in vocab
+    // Earlier strings in vocab occur more than later ones,
+    // thus natural priority arises
+    let rank: HashMap<&str, usize> = vocabulary
+        .iter()
+        .enumerate()
+        .map(|(i, s)| (s.as_str(), i))
+        .collect();
+
+    let words: Vec<&str> = text.split_whitespace().collect();
+    let mut result = Vec::new();
+
+    for w in words {
+        let mut tokens: Vec<String> = std::iter::once(" ".to_string())
+            .chain(w.chars().map(String::from))
+            .collect();
+
+        loop {
+            // find the single best (lowest-rank) merge available in this word
+            let mut best: Option<(usize, usize)> = None; // (rank, position)
+            for k in 0..tokens.len().saturating_sub(1) {
+                let mut pair = tokens[k].clone();
+                pair.push_str(&tokens[k + 1]);
+
+                // If pair exists in rank map and if the priority is higher
+                if let Some(&r) = rank.get(pair.as_str())
+                    && best.is_none_or(|(br, _)| r < br) 
+                {
+                        best = Some((r, k));
+                }
+            }
+            match best {
+                Some((_, k)) => {
+                    let merged = tokens[k].clone() + &tokens[k + 1];
+                    tokens[k] = merged;
+                    tokens.remove(k + 1);
+                }
+                None => break,
+            }
+        }
+        result.extend(tokens);
+    }
+    result
+}
+
+pub fn bpe_encoder_a(vocabulary: &Vec<String>, text: &String) -> Vec<String> {
     let words: Vec<&str> = text.split_whitespace().collect();
     let mut broken_words: Vec<Vec<String>> = Vec::new();
     for i in &words {
@@ -168,7 +225,10 @@ pub fn bpe_encoder(vocabulary: &Vec<String>, text: &String) -> Vec<String> {
     }
     for i in vocabulary {
         for j in 0..broken_words.len() {
-            for k in 0..(j - 1) {
+            for k in 0..(broken_words[j].len()-1) {
+                if k >= broken_words[j].len()-1 {
+                    break;
+                }
                 let mut temp = broken_words[j][k].clone();
                 temp.push_str(&broken_words[j][k + 1].clone());
                 if temp == *i {
@@ -176,15 +236,39 @@ pub fn bpe_encoder(vocabulary: &Vec<String>, text: &String) -> Vec<String> {
                     broken_words[j].remove(k);
                     broken_words[j].insert(k, temp);
                 }
+                
             }
         }
     }
-    let mut returnable: Vec<String> = Vec::new();
-    for i in 0..broken_words.len() {
-        for j in 0..broken_words[i].len() {
-            returnable.push(broken_words[i][j].clone());
+    let mut res: Vec<String> = Vec::new();
+    for i in broken_words {
+        for j in i {
+            res.push(j);
         }
     }
-    returnable
+    res
 }
-// TODO(LiuAlexR) - implement function to tokenize future inputs
+/// Turns the vector of String tokens into a vector of integer tokens, by the token's index
+pub fn text_to_indices(vocabulary: &Vec<String>, encoded: &Vec<String>) -> Vec<usize> {
+    let rank: HashMap<&str, usize> = vocabulary
+        .iter()
+        .enumerate()
+        .map(|(i, s)| (s.as_str(), i))
+        .collect();
+    let mut new_tokens: Vec<usize> = Vec::new();
+    for i in encoded {
+        new_tokens.push(rank[i.as_str()]);
+    }
+    new_tokens
+}
+pub fn indices_to_text(vocabulary: &Vec<String>, encoded: &Vec<usize>) -> Vec<String> {
+    
+    let mut new_tokens: Vec<String> = Vec::new();
+    for i in encoded {
+        new_tokens.push(vocabulary[*i].clone());
+    }
+    new_tokens
+}
+pub fn usize_to_token(vocabulary: &Vec<String>, num: usize) -> &str {
+    &vocabulary[num]
+}
