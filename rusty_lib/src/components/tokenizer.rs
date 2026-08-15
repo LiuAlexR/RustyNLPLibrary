@@ -2,7 +2,7 @@ use std::{
     collections::{HashMap, VecDeque},
     vec::Vec,
 };
-use crate::math::{increment, Backend, VOCAB};
+use crate::math::{increment_row, Backend, VOCAB};
 use burn::Tensor;
 
 /// Byte-Pair Encoding scheme
@@ -148,12 +148,12 @@ fn count_word<'a>(
     let (idx, mut t) = map.get(s).unwrap().clone();
     for i in (target_idx - context_window)..(target_idx - 1) {
         let (context_idx, _) = map.get(&input[i as usize] as &str).unwrap();
-        t = increment(t.clone(), *context_idx as usize);
+        t = increment_row(t.clone(), *context_idx as usize);
     }
 
     for i in (target_idx + 1)..(target_idx + context_window) {
         let (context_idx, _) = map.get(&input[i as usize] as &str).unwrap();
-        t = increment(t.clone(), *context_idx as usize);
+        t = increment_row(t.clone(), *context_idx as usize);
     }
 
     map.insert(s, (idx, t));
