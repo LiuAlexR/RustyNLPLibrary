@@ -139,22 +139,26 @@ fn combine(arr: &[char]) -> (String, HashMap<String, (u64, Vec<u64>)>) {
 //
 // 5 == target 3,4 6,7
 fn count_word<'a>(
-    target_idx: u64,
+    target_idx: usize,
     map: &mut HashMap<&'a str, (u64, Tensor<Backend, 1>)>,
     input: &'a [String],
-    context_window: u64,
+    context_window: usize,
 ) {
-    let s: &str = &input[target_idx as usize];
+    let s: &str = &input[target_idx];
     let (idx, mut t) = map.get(s).unwrap().clone();
-    for i in (target_idx - context_window)..(target_idx - 1) {
-        let (context_idx, _) = map.get(&input[i as usize] as &str).unwrap();
-        t = increment_row(t.clone(), *context_idx as usize);
-    }
 
-    for i in (target_idx + 1)..(target_idx + context_window) {
-        let (context_idx, _) = map.get(&input[i as usize] as &str).unwrap();
-        t = increment_row(t.clone(), *context_idx as usize);
-    }
+    let _ = input.iter().take(target_idx - 1).skip(target_idx - context_window);
+
+    // for i in (target_idx - context_window )..(target_idx - 1) {
+    //     let (context_idx, _) = map.get(&input[i ] as &str).unwrap();
+    //     t = increment_row(t.clone(), *context_idx as usize);
+    // }
+    let _ = input.iter().take(target_idx + context_window).skip(target_idx + 1);
+
+    // for i in (target_idx + 1)..(target_idx + context_window) {
+    //     let (context_idx, _) = map.get(&input[i ] as &str).unwrap();
+    //     t = increment_row(t.clone(), *context_idx as usize);
+    // }
 
     map.insert(s, (idx, t));
 }
@@ -179,6 +183,10 @@ pub fn co_occurence(input: &[String], vocab: &[String], context_window: u64) -> 
             )
         })
         .collect();
+
+    for idx in 0..input.len() {
+        count_word(idx, &mut map, input, context_window as usize);
+    }
 
     ten
 }
