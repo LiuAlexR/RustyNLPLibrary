@@ -1,9 +1,9 @@
-use crate::math::{Backend, VOCAB};
-use burn::Tensor;
 use std::{
     collections::{HashMap, VecDeque},
     vec::Vec,
 };
+use crate::math::{increment, Backend, VOCAB};
+use burn::Tensor;
 
 /// Byte-Pair Encoding scheme
 ///
@@ -138,16 +138,25 @@ fn combine(arr: &[char]) -> (String, HashMap<String, (u64, Vec<u64>)>) {
 // so if window = 2, first 2 words before and after target
 //
 // 5 == target 3,4 6,7
-fn count_word(
+fn count_word<'a>(
     target_idx: u64,
-    mut map: HashMap<&str, (u64, Tensor<Backend, 1>)>,
-    input: &[String],
+    map: &mut HashMap<&'a str, (u64, Tensor<Backend, 1>)>,
+    input: &'a [String],
     context_window: u64,
 ) {
     let s: &str = &input[target_idx as usize];
+    let (idx, mut t) = map.get(s).unwrap().clone();
     for i in (target_idx - context_window)..(target_idx - 1) {
         let (context_idx, _) = map.get(&input[i as usize] as &str).unwrap();
+        t = increment(t.clone(), *context_idx as usize);
     }
+
+    for i in (target_idx + 1)..(target_idx + context_window) {
+        let (context_idx, _) = map.get(&input[i as usize] as &str).unwrap();
+        t = increment(t.clone(), *context_idx as usize);
+    }
+
+    map.insert(s, (idx, t));
 }
 
 // create a hashmap H<&String, (u64, Tensor::<Backend,2>> where tuple is (idx in vocab, tensor
@@ -155,6 +164,8 @@ fn count_word(
 // for each word, update H
 // then at end, create tensor and update matrix
 pub fn co_occurence(input: &[String], vocab: &[String], context_window: u64) -> Tensor<Backend, 2> {
+    assert!(context_window >= 1, "Context window must be at least 1");
+
     let device = Default::default();
     let ten = Tensor::<Backend, 2>::zeros([VOCAB, VOCAB], &device);
 
