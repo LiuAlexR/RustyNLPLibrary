@@ -133,16 +133,41 @@ fn combine(arr: &[char]) -> (String, HashMap<String, (u64, Vec<u64>)>) {
     (x.clone(), map)
 }
 
-// easiest way to do this is do a O(N) op and create a vec of tokens fully merged
-// then for each word, just add the first N words that come before and after
-// cash?
-pub fn co_occurence(arr: &[char], vocab: Vec<String>, context_window: u64) -> Tensor<Backend, 2> {
-    let device = Default::default();
-    let shape = [VOCAB];
+// |--TARGET--|
+// window - defined as number of words before and after
+// so if window = 2, first 2 words before and after target
+//
+// 5 == target 3,4 6,7
+fn count_word(
+    target_idx: u64,
+    mut map: HashMap<&str, (u64, Tensor<Backend, 1>)>,
+    input: &[String],
+    context_window: u64,
+) {
+    let s: &str = &input[target_idx as usize];
+    for i in (target_idx - context_window)..(target_idx - 1) {
+        let (context_idx, _) = map.get(&input[i as usize] as &str).unwrap();
+    }
+}
 
-    let mut ten = Tensor::<Backend, 2>::zeros(shape, &device);
-    let len = arr.len() as u64;
-    let mut i = 0;
+// create a hashmap H<&String, (u64, Tensor::<Backend,2>> where tuple is (idx in vocab, tensor
+// representing all words)
+// for each word, update H
+// then at end, create tensor and update matrix
+pub fn co_occurence(input: &[String], vocab: &[String], context_window: u64) -> Tensor<Backend, 2> {
+    let device = Default::default();
+    let ten = Tensor::<Backend, 2>::zeros([VOCAB, VOCAB], &device);
+
+    let mut map: HashMap<&str, (u64, Tensor<Backend, 1>)> = vocab
+        .iter()
+        .enumerate()
+        .map(|(idx, s)| {
+            (
+                s.as_str(),
+                (idx as u64, Tensor::<Backend, 1>::zeros([VOCAB], &device)),
+            )
+        })
+        .collect();
 
     ten
 }
