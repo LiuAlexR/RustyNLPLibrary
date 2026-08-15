@@ -41,7 +41,7 @@ pub fn bpe_tokenize(corpus: &str, num_tokens: u64, only_new: bool) -> Vec<String
             if only_new {
                 new_vocab.push(token.clone());
             }
-            println!("{}", token);
+            // println!("{}", token);
             vocabulary.push(token);
         }
     }
@@ -213,4 +213,62 @@ pub fn bpe_encoder(vocabulary: &Vec<String>, text: &String) -> Vec<String> {
         result.extend(tokens);
     }
     result
+}
+
+pub fn bpe_encoder_a(vocabulary: &Vec<String>, text: &String) -> Vec<String> {
+    let words: Vec<&str> = text.split_whitespace().collect();
+    let mut broken_words: Vec<Vec<String>> = Vec::new();
+    for i in &words {
+        let mut chars: Vec<String> = (*i).chars().map(String::from).collect();
+        chars.insert(0, " ".to_string());
+        broken_words.push(chars);
+    }
+    for i in vocabulary {
+        for j in 0..broken_words.len() {
+            for k in 0..(broken_words[j].len()-1) {
+                if k >= broken_words[j].len()-1 {
+                    break;
+                }
+                let mut temp = broken_words[j][k].clone();
+                temp.push_str(&broken_words[j][k + 1].clone());
+                if temp == *i {
+                    broken_words[j].remove(k);
+                    broken_words[j].remove(k);
+                    broken_words[j].insert(k, temp);
+                }
+                
+            }
+        }
+    }
+    let mut res: Vec<String> = Vec::new();
+    for i in broken_words {
+        for j in i {
+            res.push(j);
+        }
+    }
+    res
+}
+/// Turns the vector of String tokens into a vector of integer tokens, by the token's index
+pub fn text_to_indices(vocabulary: &Vec<String>, encoded: &Vec<String>) -> Vec<usize> {
+    let rank: HashMap<&str, usize> = vocabulary
+        .iter()
+        .enumerate()
+        .map(|(i, s)| (s.as_str(), i))
+        .collect();
+    let mut new_tokens: Vec<usize> = Vec::new();
+    for i in encoded {
+        new_tokens.push(rank[i.as_str()]);
+    }
+    new_tokens
+}
+pub fn indices_to_text(vocabulary: &Vec<String>, encoded: &Vec<usize>) -> Vec<String> {
+    
+    let mut new_tokens: Vec<String> = Vec::new();
+    for i in encoded {
+        new_tokens.push(vocabulary[*i].clone());
+    }
+    new_tokens
+}
+pub fn usize_to_token(vocabulary: &Vec<String>, num: usize) -> &str {
+    &vocabulary[num]
 }
