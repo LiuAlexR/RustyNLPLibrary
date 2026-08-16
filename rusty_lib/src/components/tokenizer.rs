@@ -41,7 +41,6 @@ pub fn bpe_tokenize(corpus: &str, num_tokens: u64, only_new: bool) -> Vec<String
             if only_new {
                 new_vocab.push(token.clone());
             }
-            // println!("{}", token);
             vocabulary.push(token);
         }
     }
@@ -209,12 +208,10 @@ pub fn co_occurence(input: &[String], vocab: &[String], context_window: usize) -
         .collect();
 
     for idx in 0..input.len() {
-        println!("{}", idx);
         count_word(idx, &mut map, context_window, input);
     }
 
-let total: u64 = map.values().map(|(_, counts)| counts.iter().sum::<u64>()).sum();
-println!("total counts in map: {}", total);
+    let total: u64 = map.values().map(|(_, counts)| counts.iter().sum::<u64>()).sum();
 
     for (_, (idx, counts)) in map.iter() {
         let counts_f32: Vec<f32> = counts.iter().map(|&c| c as f32).collect();
@@ -224,7 +221,6 @@ println!("total counts in map: {}", total);
     }
 
     let sum_check: f32 = matrix.clone().sum().into_scalar();
-    println!("matrix sum right before return: {}", sum_check);
 
     matrix
 }
