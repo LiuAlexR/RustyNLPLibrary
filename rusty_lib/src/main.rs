@@ -2,7 +2,7 @@
 use std::time::Instant;
 
 // use rusty_lib::components::*;
-use rusty_lib::{components::tokenizer, components::n_grams, util};
+use rusty_lib::{components::n_grams, components::tokenizer, util};
 fn main() {
     // let x = util::retrieve_source("liu_hello_world.txt");
     let x = util::retrieve_source("orwell_1984.txt");
@@ -24,7 +24,10 @@ fn main() {
     let unigram = n_grams::unigram_creation(vocab.len(), &index_tokens);
     let bigram = n_grams::bigram_creation(vocab.len(), &index_tokens);
     let out = n_grams::bigram_test(&bigram, &unigram);
-    let out_text: Vec<&str> = out.into_iter().map(|x| tokenizer::usize_to_token(&vocab, x)).collect();
+    let out_text: Vec<&str> = out
+        .into_iter()
+        .map(|x| tokenizer::usize_to_token(&vocab, x))
+        .collect();
     println!("{:?}", out_text);
     let test_str = " my text";
     let test_tokens = tokenizer::bpe_encoder(&vocab, &test_str.to_string());
