@@ -10,15 +10,15 @@ use std::hint::black_box;
 
 fn bench_bpe_tokenize(c: &mut Criterion) {
     let x = util::retrieve_source("orwell_1984.txt");
-    let tokens = 1000;
+    const TOKENS: u64 = 5000;
 
     c.bench_function("bpe_tokenize orwell 5000", |b| {
-        b.iter(|| black_box(bpe_tokenize(&x, tokens, true)))
+        b.iter(|| black_box(bpe_tokenize(&x, TOKENS, true)))
     });
 }
 
 fn bench_find_derivative(c: &mut Criterion) {
-    let N = 400;
+    const N: u64 = 400;
     let mut v = vec![];
     for _ in 0..N {
         v.push(create_random_tensor());

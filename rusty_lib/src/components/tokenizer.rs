@@ -2,8 +2,6 @@ use std::{
     collections::{HashMap, VecDeque},
     vec::Vec,
 };
-use crate::math::{update_matrix, Backend, VOCAB};
-use burn::Tensor;
 
 /// Byte-Pair Encoding scheme
 ///
@@ -130,99 +128,6 @@ fn combine(arr: &[char]) -> (String, HashMap<String, (u64, Vec<u64>)>) {
         .expect("Error finding max");
 
     (x.clone(), map)
-}
-
-// |--TARGET--|
-// window - defined as number of words before and after
-// so if window = 2, first 2 words before and after target
-//
-// 5 == target 3,4 6,7
-// fn count_word<'a>(
-//     target_idx: usize,
-//     map: &mut HashMap<&'a str, (u64, Tensor<Backend, 1>)>,
-//     input: &'a [String],
-//     context_window: usize,
-// ) {
-//     let s: &str = &input[target_idx];
-//     let (idx, mut t) = map.get(s).unwrap().clone();
-//
-//     for i in (target_idx - context_window )..(target_idx - 1) {
-//         let (context_idx, _) = map.get(&input[i ] as &str).unwrap();
-//         t = increment_row(t.clone(), *context_idx as usize);
-//     }
-//
-//     for i in (target_idx + 1)..(target_idx + context_window) {
-//         let (context_idx, _) = map.get(&input[i ] as &str).unwrap();
-//         t = increment_row(t.clone(), *context_idx as usize);
-//     }
-//
-//     map.insert(s, (idx, t));
-// }
-
-fn count_word(
-    target_idx : usize,
-    map : &mut HashMap<&str, (usize, Vec<u64>)>,
-    context_window : usize,
-    input: &[String],
-) {
-    let s : &str = &input[target_idx];
-    let start = target_idx.saturating_sub(context_window);
-    let end = (target_idx + context_window).min(input.len() - 1);
-
-    for i in start..=end {
-        if i == target_idx {
-            continue;
-        }
-
-        let context_idx = map.get(&input[i] as &str).unwrap().0;
-
-        if let Some((_, counts)) = map.get_mut(s) {
-            counts[context_idx] += 1;
-        }
-    }
-
-}
-
-
-
-// HashMap<&str, (usize, Vec<u64>)>
-// Tensor from the vec 
-// add the tensors to the matrix
-
-pub fn co_occurence(input: &[String], vocab: &[String], context_window: usize) -> Tensor<Backend, 2> {
-    assert!(context_window >= 1, "Context window must be at least 1");
-    assert_eq!(vocab.len(), VOCAB + 128, "vocab length must match VOCAB constant");
-
-    let device = Default::default();
-    let mut matrix = Tensor::<Backend, 2>::zeros([vocab.len(), vocab.len()], &device);
-
-    let mut map: HashMap<&str, (usize, Vec<u64>)> = vocab
-        .iter()
-        .enumerate()
-        .map(|(idx, s)| {
-            (
-                s.as_str(),
-                (idx, vec![0u64; vocab.len()])
-            )
-        })
-        .collect();
-
-    for idx in 0..input.len() {
-        count_word(idx, &mut map, context_window, input);
-    }
-
-    let total: u64 = map.values().map(|(_, counts)| counts.iter().sum::<u64>()).sum();
-
-    for (_, (idx, counts)) in map.iter() {
-        let counts_f32: Vec<f32> = counts.iter().map(|&c| c as f32).collect();
-        let row: Tensor<Backend, 1> = Tensor::from_data(counts_f32.as_slice(), &device);
-        let row_2d: Tensor<Backend, 2> = row.unsqueeze();
-        matrix = update_matrix(matrix, row_2d, idx + 1); // +1: map is 0-indexed, update_matrix wants 1-indexed
-    }
-
-    let sum_check: f32 = matrix.clone().sum().into_scalar();
-
-    matrix
 }
 
 fn find_largest_token(arr: &[char], mut idx: u64, vocabulary: &[String]) -> String {
