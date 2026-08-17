@@ -37,6 +37,12 @@ pub fn create_random_matrix() -> Tensor<Backend, 2> {
     Tensor::<Backend, 2>::random(shape, dis, &device)
 }
 
+pub fn create_random_matrix_custom_dimensions(vocab_size: usize, dimensions: usize) -> Tensor<Backend, 2> {
+    let device = Default::default();
+    let dis = Distribution::Uniform(0., 1.);
+    let shape = [vocab_size, dimensions];
+    Tensor::<Backend, 2>::random(shape, dis, &device)
+}
 /// Calculates loss of target, context word, and negatives
 ///
 /// Page 109 of the book, eq 5.21 is what is implemented
