@@ -3,6 +3,7 @@ use std::ops::Div;
 use burn::Tensor;
 use rand::distr::{Distribution, Uniform};
 use crate::math::{Backend, VOCAB, create_random_matrix};
+/// This is Word2Vec.
 pub struct Word2Vec<'a> {
     vocabulary: &'a [String],
     target_matrix: Tensor<Backend, 2>,
