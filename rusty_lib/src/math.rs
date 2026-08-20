@@ -13,7 +13,7 @@ pub enum Word {
 // According to wikipedia, dimensionality is between 100-1000
 // Stack Overflow says 100-300
 pub const DIMENSIONS: usize = 3;
-pub const VOCAB: usize = 10;
+pub const VOCAB: usize = 10000;
 
 /// Creates random tensor
 ///
@@ -147,8 +147,8 @@ pub fn update_matrix(
     idx: usize,
 ) -> Tensor<Backend, 2> {
     assert!(idx >= 1, "Index must 1-indexed and >= 1");
-    assert!(idx <= VOCAB, "Index must be <= VOCAB");
-    matrix.slice_assign([idx - 1..idx, 0..DIMENSIONS], new_row)
+    assert!(idx <= VOCAB + 128, "Index must be <= VOCAB");
+    matrix.slice_assign([idx - 1..idx, 0..VOCAB + 128], new_row)
 }
 
 /// Increments value at idx of row vec by 1
@@ -163,7 +163,7 @@ pub fn update_matrix(
 /// A `Tensor<Backend,1>` representing row vec with incremented value
 pub fn increment_row(row: Tensor<Backend, 1>, idx: usize) -> Tensor<Backend, 1> {
     assert!(idx >= 1, "Index must be 1-indexed and >= 1");
-    assert!(idx <= VOCAB, "Index must be <= VOCAB");
+    assert!(idx <= VOCAB + 128, "Index must be <= VOCAB");
 
     let zero_idx = idx - 1;
     let current = row.clone().slice([zero_idx..zero_idx + 1]);
@@ -186,9 +186,9 @@ pub fn increment_row_in_matrix(
     co_word_idx: usize,
 ) -> Tensor<Backend, 2> {
     assert!(vocab_idx >= 1, "Index must be 1-indexed and >= 1");
-    assert!(vocab_idx <= VOCAB, "Index must be <= VOCAB");
+    assert!(vocab_idx <= VOCAB + 128, "Index must be <= VOCAB");
     assert!(co_word_idx >= 1, "Index must be 1-indexed and >= 1");
-    assert!(co_word_idx <= VOCAB, "Index must be <= VOCAB");
+    assert!(co_word_idx <= VOCAB + 128, "Index must be <= VOCAB");
 
     let row: Tensor<Backend, 1> = matrix.clone().slice([vocab_idx - 1..vocab_idx]).squeeze();
     let bumped_row = increment_row(row, co_word_idx);
