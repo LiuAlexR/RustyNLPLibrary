@@ -2,7 +2,7 @@
 use std::time::Instant;
 
 // use rusty_lib::components::*;
-use rusty_lib::{components::n_grams, components::tokenizer, util};
+use rusty_lib::{components::{n_grams, tokenizer, word_2_vec::{self, Word2Vec}}, util};
 fn main() {
     // let x = util::retrieve_source("liu_hello_world.txt");
     let x = util::retrieve_source("orwell_1984.txt");
@@ -33,5 +33,15 @@ fn main() {
     let test_tokens = tokenizer::bpe_encoder(&vocab, &test_str.to_string());
     let int_tokens = tokenizer::text_to_indices(&vocab, &test_tokens);
     println!("{:?}", test_tokens);
-    println!("{:?}", int_tokens);
+    println!("{:?}", int_tokens); 
+    let mut word_2_vec_model: Word2Vec = word_2_vec::build_model(&vocab, 50, 5, 5, 0.01);
+
+    word_2_vec_model.train_naive(&index_tokens, &unigram);
+    word_2_vec_model.adjust_training_rate(0.005);
+    word_2_vec_model.train_naive(&index_tokens, &unigram);
+    word_2_vec_model.adjust_training_rate(0.0025);
+    word_2_vec_model.train_naive(&index_tokens, &unigram);
+    word_2_vec_model.print_vec(196);
+    word_2_vec_model.print_vec(136);
+    word_2_vec_model.print_vec(212);
 }
