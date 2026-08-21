@@ -37,7 +37,10 @@ pub fn create_random_matrix() -> Tensor<Backend, 2> {
     Tensor::<Backend, 2>::random(shape, dis, &device)
 }
 
-pub fn create_random_matrix_custom_dimensions(vocab_size: usize, dimensions: usize) -> Tensor<Backend, 2> {
+pub fn create_random_matrix_custom_dimensions(
+    vocab_size: usize,
+    dimensions: usize,
+) -> Tensor<Backend, 2> {
     let device = Default::default();
     let dis = Distribution::Uniform(0., 1.);
     let shape = [vocab_size, dimensions];
@@ -95,15 +98,18 @@ pub fn find_derivative(
 ) -> Vec<Tensor<Backend, 1>> {
     match w {
         Word::Context => vec![((sigmoid(target.clone().dot(context)) - 1) * target)],
-        Word::Target => get_negatives(target.clone(), negatives.clone(), true),
-        Word::Negative => {
+        Word::Negative => get_negatives(target.clone(), negatives.clone(), true),
+        Word::Target => {
             let x = get_negatives(target.clone(), negatives.clone(), false);
             let mut a: Tensor<Backend, 1> = Tensor::zeros_like(&target);
 
             for t in x {
                 a = a.add(t);
             }
-            vec![a]
+
+            let pos = (sigmoid(context.clone().dot(target.clone())) - 1).mul(context.clone());
+
+            vec![pos.add(a)]
         }
     }
 }
@@ -119,10 +125,10 @@ fn get_negatives(
 
     for t in negatives {
         if with_target {
-            let result = target.clone().dot(t.clone()).mul(target.clone());
+            let result = sigmoid(t.dot(target.clone())).mul(target.clone());
             v.push(result);
         } else {
-            let result = target.clone().dot(t.clone()).mul(t);
+            let result = sigmoid(t.clone().dot(target.clone())).mul(t);
             v.push(result);
         }
     }
