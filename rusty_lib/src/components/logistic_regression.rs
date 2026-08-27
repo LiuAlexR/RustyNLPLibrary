@@ -1,6 +1,6 @@
 use crate::math::Backend;
 use burn::{
-    tensor::activation::{sigmoid, softmax},
+    tensor::activation::{relu, sigmoid, softmax},
     Tensor,
 };
 
@@ -120,8 +120,12 @@ pub fn logistic_regression(
     weights
 }
 
-fn sig(features: Tensor<Backend, 2>, weights: Tensor<Backend, 2>) -> Tensor<Backend, 2> {
+pub fn sig(features: Tensor<Backend, 2>, weights: Tensor<Backend, 2>) -> Tensor<Backend, 2> {
     sigmoid(features.matmul(weights))
+}
+
+pub fn use_relu(features: Tensor<Backend, 2>) -> Tensor<Backend, 2> {
+    relu(features)
 }
 
 fn grad(
