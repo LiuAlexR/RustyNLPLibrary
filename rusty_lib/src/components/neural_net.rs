@@ -39,4 +39,6 @@ use burn::Tensor;
 // third, for all layers that isn't output, create method of multipling weights,
 // propagating backwards, yea
 
-// pub fn map_tokens() -> HashMap<String, Tensor<Backend,2> {}
+// create a function to serve as the forward pass
+// create a function to serve as backward pass
+// create function(train) to accept feature and example data
