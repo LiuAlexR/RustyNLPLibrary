@@ -1,44 +1,53 @@
-// each hidden unit has a weight vector and a bias
-// We have weight matrix W to represent all weights of hidden layer
-// vector b for biases
-//
-// Wji represents weight of ith input xi and jth hidden unit hi
-//
-// Output now is h = activator(Wx + b)
-//
-// h is a representation of input
-// output layer takes h and computes a final output
-//
-// output layer does z = Uh, where U is a weight matrix
-// Uij is weight from unit hj to unit i in the output layer
-//
-// We then softmax z to get probabilities
-//
-// bias is now just added at the end of input rather than its own thing
-// so now its like h = act(Wx)
-//
-// with regard to matrices
-// H = act(X * tranpose of W + b), where X's row vector is input, so shape [mxd]
-// Z = H x tranpose of U
-// Y = softmax(Z)
-//
-// Two ways to take in embeddings as input: pooling and concatenation
-//
-// Concatenation: Take a shape of [Nxd], where I think N means # of input vectors, D is dimensions
-// We reshape it into a [1xdN] vector, so all the vectors presumably are right next to each other
-//
-// derivative of RELU is {0 for z < 0, 1 otherwise}
-
 use std::collections::HashMap;
 
-use crate::math::Backend;
-use burn::Tensor;
+use crate::math::{create_random_matrix, Backend};
+use burn::{
+    tensor::{activation::relu, Int},
+    Tensor,
+};
 
-// first step, map tokens to embeddings
-// second step, concatenate into a [1xnd] array
-// third, for all layers that isn't output, create method of multipling weights,
-// propagating backwards, yea
+const LEARNING_RATE: f64 = 3.4;
+const NUM_LAYERS: i64 = 3;
+const NUM_HIDDEN_NODES: i64 = 10;
 
-// create a function to serve as the forward pass
-// create a function to serve as backward pass
-// create function(train) to accept feature and example data
+// X is going to be past n words
+// y is going to be the one hot vector of n
+// pass in weights as well?
+
+pub fn use_relu(weights: Tensor<Backend, 2>) -> Tensor<Backend, 2> {
+    relu(weights)
+}
+pub fn train<Activator>(
+    input: &[String],
+    embedding_matrix: Tensor<Backend, 2>,
+    token_map: &HashMap<String, i64>,
+    act: Activator,
+) -> Tensor<Backend, 2>
+where
+    Activator: Fn(Tensor<Backend, 2>) -> Tensor<Backend, 2>,
+{
+    let concatenated = concatenate_embeddings(input, token_map, embedding_matrix);
+    concatenated
+}
+
+fn one_pass<Activator>(
+    X: Tensor<Backend, 2>,
+    y: Tensor<Backend, 1>,
+    weights: Tensor<Backend, 2>,
+    act: Activator,
+) -> Tensor<Backend, 2>
+where
+    Activator: Fn(Tensor<Backend, 2>) -> Tensor<Backend, 2>,
+{
+    create_random_matrix()
+}
+
+fn concatenate_embeddings(
+    input: &[String],
+    token_map: &HashMap<String, i64>,
+    embedding_matrix: Tensor<Backend, 2>,
+) -> Tensor<Backend, 2> {
+    let ids: Vec<i64> = input.iter().map(|w| token_map[w]).collect();
+    let idx = Tensor::<Backend, 1, Int>::from_data(ids.as_slice(), &Default::default());
+    embedding_matrix.select(0, idx)
+}
