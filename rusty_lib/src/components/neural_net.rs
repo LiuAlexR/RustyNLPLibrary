@@ -3,7 +3,7 @@
 
 use crate::{
     components::logistic_regression::add_bias,
-    math::{create_random_matrix, create_random_vector, Backend},
+    math::{create_random_matrix, Backend},
 };
 use burn::{
     tensor::{
