@@ -20,14 +20,19 @@ const EPOCHS: i64 = 2;
 
 type Activator = fn(Tensor<Backend, 2>) -> Tensor<Backend, 2>;
 
-// X is going to be past n words
-// y is going to be the one hot vector of n
-// pass in weights as well?
-
 pub fn use_relu(weights: Tensor<Backend, 2>) -> Tensor<Backend, 2> {
     relu(weights)
 }
 
+/// Takes X,y, optional previous weights, vocab_size, and activator function
+/// to run a neural network on
+///
+/// X - Tensor of shape [1xnd] where n is number of inputs and d is embedding_dimensions;
+///     represents concatenated embedding
+/// y - one-hot vector of the correct token that comes after the sequence
+/// weights - optional W,U weights to pass in
+/// vocab_size - how many tokens in memory
+/// act - activator function
 pub fn train(
     X: Tensor<Backend, 2>,
     y: Tensor<Backend, 1>,
@@ -51,25 +56,33 @@ pub fn train(
     (W, U)
 }
 
+/// Executes one forward and backward pass
+///
+/// X - concatenated embedding of size [1xnd]
+/// y - one-hot vector of correct token to predict
+/// W - weight matrix for hidden layer
+/// U - weight matrix for output layer
+/// act - activator function
 pub fn one_pass(
     X: Tensor<Backend, 2>,
     y: Tensor<Backend, 1>,
-    hidden_weights: Tensor<Backend, 2>,
-    output_weights: Tensor<Backend, 2>,
+    W: Tensor<Backend, 2>,
+    U: Tensor<Backend, 2>,
     act: Activator,
 ) -> (Tensor<Backend, 2>, Tensor<Backend, 2>) {
-    let output = forward_pass(
-        X.clone(),
-        hidden_weights.clone(),
-        output_weights.clone(),
-        act,
-    );
+    let output = forward_pass(X.clone(), W.clone(), U.clone(), act);
     let sm = softmax(output, 1);
+    // cross entropy loss
     let loss = sm.log().mul(y.unsqueeze()).sum().neg();
-    backward_pass(hidden_weights, output_weights, loss.unsqueeze())
+    backward_pass(W, U, loss.unsqueeze())
 }
 
 /// Outputs result of forward pass
+///
+/// X - concatenated embedding of size [1xnd]
+/// W - weight matrix for hidden layer
+/// U - weight matrix for output layer
+/// act - activator function
 pub fn forward_pass(
     X: Tensor<Backend, 2>,
     W: Tensor<Backend, 2>,
@@ -81,6 +94,10 @@ pub fn forward_pass(
 
 /// outputs updated weights
 /// backward_pass(W,U) -> (W,U)
+///
+/// W - weight matrix for hidden layer
+/// U - weight matrix for output layer
+/// output - loss of output of forward pass
 pub fn backward_pass(
     W: Tensor<Backend, 2>,
     U: Tensor<Backend, 2>,
