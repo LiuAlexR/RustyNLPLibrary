@@ -15,26 +15,30 @@ pub enum Word {
 pub const DIMENSIONS: usize = 3;
 pub const VOCAB: usize = 10000;
 
-/// Creates random tensor
+/// Creates random vector
 ///
-/// Generates a 1D tensor with random initialized values
+/// Generates a vector with random initialized values
 ///
 /// # Returns
 ///
 /// a `Tensor<Backend,1>` with random initialized values
-pub fn create_random_tensor() -> Tensor<Backend, 1> {
+pub fn create_random_vector(x: i64) -> Tensor<Backend, 1> {
     let device = Default::default();
     let dis = Distribution::Uniform(0., 1.);
-    let shape = [DIMENSIONS];
 
-    Tensor::<Backend, 1>::random(shape, dis, &device)
+    Tensor::<Backend, 1>::random([x], dis, &device)
 }
 
-pub fn create_random_matrix() -> Tensor<Backend, 2> {
+/// Creates random 2D matrix
+///
+/// Generates a 2D matrix with random initalized values
+///
+/// Usage:
+/// `let ten = create_random_matrix(100,100);`
+pub fn create_random_matrix(x: i64, y: i64) -> Tensor<Backend, 2> {
     let device = Default::default();
     let dis = Distribution::Uniform(0., 1.);
-    let shape = [VOCAB, DIMENSIONS];
-    Tensor::<Backend, 2>::random(shape, dis, &device)
+    Tensor::<Backend, 2>::random([x, y], dis, &device)
 }
 
 pub fn create_random_matrix_custom_dimensions(

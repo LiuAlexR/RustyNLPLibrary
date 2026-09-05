@@ -1,0 +1,16 @@
+Transformers turn tokens into embeddings, and encodes the position of word 
+
+alpha is created via dot product of the two vectors, then softmaxed
+  -- thus if we have target "dog", and other vectors "fluffy" and "small" and "dog",
+     we'll take dot product of each of those with the target, then softmax it all
+     of course, remember the words are chosen via context window and the target itself
+
+Attention head:
+-- target element is called query
+-- element to compare with target is called key
+-- value is the dot product that is softmaxed
+
+Thus, we have 3 weight matrices, Wq, Wk, Wv
+and we can get qi = xiWq, ki = xiWk, Vi = xiWv
+
+
