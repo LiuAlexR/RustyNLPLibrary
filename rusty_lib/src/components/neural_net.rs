@@ -1,14 +1,21 @@
-use std::collections::HashMap;
+// This neural net implementation is only going to handle 2 layers
+// Since the Feedforward layer for a Transformer block is only 2 layers
 
 use crate::math::{create_random_matrix, Backend};
 use burn::{
-    tensor::{activation::relu, Int},
+    tensor::{
+        activation::{relu, softmax},
+        Int,
+    },
     Tensor,
 };
+use std::collections::HashMap;
 
 const LEARNING_RATE: f64 = 3.4;
 const NUM_LAYERS: i64 = 3;
 const NUM_HIDDEN_NODES: i64 = 10;
+
+type Activator = fn(Tensor<Backend, 2>) -> Tensor<Backend, 2>;
 
 // X is going to be past n words
 // y is going to be the one hot vector of n
@@ -17,29 +24,52 @@ const NUM_HIDDEN_NODES: i64 = 10;
 pub fn use_relu(weights: Tensor<Backend, 2>) -> Tensor<Backend, 2> {
     relu(weights)
 }
-pub fn train<Activator>(
-    input: &[String],
-    embedding_matrix: Tensor<Backend, 2>,
-    token_map: &HashMap<String, i64>,
-    act: Activator,
-) -> Tensor<Backend, 2>
-where
-    Activator: Fn(Tensor<Backend, 2>) -> Tensor<Backend, 2>,
-{
-    let concatenated = concatenate_embeddings(input, token_map, embedding_matrix);
-    concatenated
-}
 
-fn one_pass<Activator>(
+pub fn train(X: Tensor<Backend, 2>, y: Tensor<Backend, 2>) {}
+
+pub fn one_pass(
     X: Tensor<Backend, 2>,
     y: Tensor<Backend, 1>,
-    weights: Tensor<Backend, 2>,
+    hidden_weights: Tensor<Backend, 2>,
+    output_weights: Tensor<Backend, 2>,
     act: Activator,
-) -> Tensor<Backend, 2>
-where
-    Activator: Fn(Tensor<Backend, 2>) -> Tensor<Backend, 2>,
-{
-    create_random_matrix()
+) -> (Tensor<Backend, 2>, Tensor<Backend, 2>) {
+    let output = forward_pass(
+        X.clone(),
+        hidden_weights.clone(),
+        output_weights.clone(),
+        act,
+    );
+    let sm = softmax(output, 1);
+    let loss = sm.log().mul(y.unsqueeze()).sum().neg();
+    backward_pass(hidden_weights, output_weights, loss.unsqueeze())
+}
+
+/// Outputs result of forward pass
+pub fn forward_pass(
+    X: Tensor<Backend, 2>,
+    W: Tensor<Backend, 2>,
+    U: Tensor<Backend, 2>,
+    act: Activator,
+) -> Tensor<Backend, 2> {
+    act(X.matmul(W)).matmul(U)
+}
+
+/// outputs updated weights
+/// backward_pass(W,U) -> (W,U)
+pub fn backward_pass(
+    W: Tensor<Backend, 2>,
+    U: Tensor<Backend, 2>,
+    output: Tensor<Backend, 2>,
+) -> (Tensor<Backend, 2>, Tensor<Backend, 2>) {
+    let grads = output.backward();
+    let w_grad = W.grad(&grads).unwrap();
+    let u_grad = U.grad(&grads).unwrap();
+
+    let W_new = Tensor::from_inner(W.inner().sub(w_grad.mul_scalar(LEARNING_RATE))).require_grad();
+    let U_new = Tensor::from_inner(U.inner().sub(u_grad.mul_scalar(LEARNING_RATE))).require_grad();
+
+    (W_new, U_new)
 }
 
 fn concatenate_embeddings(
