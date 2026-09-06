@@ -113,6 +113,11 @@ pub fn backward_pass(
     (W_new, U_new)
 }
 
+/// takes an array of tokens and outputs a [1xnd] embedding
+///
+/// input - array of tokens
+/// token_map - mapping of strings to their indices
+/// embedding_matrix - |V|xd matrix holding all embeddings
 pub fn concatenate_embeddings(
     input: &[String],
     token_map: &HashMap<String, i64>,
