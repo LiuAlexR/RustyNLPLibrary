@@ -10,3 +10,11 @@ rand = "0.10.2"
 [[bench]]
 name = "benchmarks"
 harness = false
+
+[[bench]]
+name = "neural_net_bench"
+harness = false
+
+[[bench]]
+name = "word2vec_bench"
+harness = false

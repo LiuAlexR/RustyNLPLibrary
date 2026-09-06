@@ -1,8 +1,6 @@
 // tensor only word2vec
-// needs review!
-
 use crate::math::{create_random_matrix, Backend};
-use burn::tensor::{activation::sigmoid, Tensor};
+use burn::tensor::{activation::sigmoid, IndexingUpdateOp, Int, Tensor};
 
 pub struct Word2Vec<'a> {
     vocabulary: &'a [String],
@@ -15,54 +13,90 @@ pub struct Word2Vec<'a> {
 }
 
 impl<'a> Word2Vec<'a> {
-    pub fn train_naive(&mut self, corpus: &[usize], unigram: &[usize]) {
+    pub fn train_naive(&mut self, corpus: &[usize], unigram: &[usize], batch_size: usize) {
         let unigram_sum: usize = unigram.iter().sum();
+
+        let mut pairs: Vec<(usize, usize)> = Vec::new();
         for i in self.window_size..(corpus.len() - self.window_size) {
             let target = corpus[i];
             for j in (1..=self.window_size).rev() {
-                self.train_pair(target, corpus[i - j], unigram, unigram_sum);
+                pairs.push((target, corpus[i - j]));
             }
             for j in 0..self.window_size {
-                self.train_pair(target, corpus[i + j], unigram, unigram_sum);
+                pairs.push((target, corpus[i + j]));
             }
+        }
+
+        for chunk in pairs.chunks(batch_size) {
+            self.train_batch(chunk, unigram, unigram_sum);
         }
     }
-
-    fn train_pair(&mut self, target: usize, c_pos: usize, unigram: &[usize], unigram_sum: usize) {
+    fn train_batch(&mut self, pairs: &[(usize, usize)], unigram: &[usize], unigram_sum: usize) {
         let device = self.target_matrix.device();
-        let target_row = get_row(&self.target_matrix, target);
-        let mut negative_gradient = Tensor::<Backend, 1>::zeros([self.dim], &device);
+        let n = pairs.len();
 
-        for _ in 0..self.k {
-            let mut c_neg = get_weighted_index(unigram, unigram_sum);
-            while c_neg == target {
-                c_neg = get_weighted_index(unigram, unigram_sum);
+        let target_idx: Vec<i64> = pairs.iter().map(|&(t, _)| t as i64).collect();
+        let ctx_idx: Vec<i64> = pairs.iter().map(|&(_, c)| c as i64).collect();
+
+        let target_idx_t = Tensor::<Backend, 1, Int>::from_data(target_idx.as_slice(), &device);
+        let ctx_idx_t = Tensor::<Backend, 1, Int>::from_data(ctx_idx.as_slice(), &device);
+        let target_rows = self.target_matrix.clone().select(0, target_idx_t.clone()); // [n, dim]
+        let ctx_rows = self.context_matrix.clone().select(0, ctx_idx_t.clone()); // [n, dim]
+
+        let dots = (target_rows.clone() * ctx_rows.clone()).sum_dim(1); // [n, 1]
+        let errors = sigmoid(dots) - 1.0; // [n, 1]
+
+        let mut neg_idx: Vec<i64> = Vec::with_capacity(n * self.k);
+        for &(target, _) in pairs {
+            for _ in 0..self.k {
+                let mut c_neg = get_weighted_index(unigram, unigram_sum);
+                while c_neg == target {
+                    c_neg = get_weighted_index(unigram, unigram_sum);
+                }
+                neg_idx.push(c_neg as i64);
             }
-            let c_neg_row = get_row(&self.context_matrix, c_neg);
-            let delta_c: f32 = sigmoid(target_row.clone().dot(c_neg_row.clone())).into_scalar();
-
-            let updated_c_neg = c_neg_row
-                - target_row
-                    .clone()
-                    .mul_scalar(self.learning_rate * delta_c as f64);
-            self.context_matrix =
-                set_row(self.context_matrix.clone(), c_neg, updated_c_neg.clone());
-            negative_gradient = negative_gradient + updated_c_neg.mul_scalar(delta_c as f64);
         }
+        let neg_idx_t = Tensor::<Backend, 1, Int>::from_data(neg_idx.as_slice(), &device);
+        let neg_rows = self.context_matrix.clone().select(0, neg_idx_t.clone()); // [n*k, dim]
 
-        let c_pos_row = get_row(&self.context_matrix, c_pos);
-        let error: f32 = sigmoid(target_row.clone().dot(c_pos_row.clone())).into_scalar() - 1.0;
+        // NOTE: repeat_dim must produce [t0,t0,...(k times),t1,t1,...] to align with
+        // neg_idx's per-pair-then-per-k ordering above
+        // verify against Burn's actual repeat_dim semantics before trusting this
+        let target_rows_rep = target_rows.clone().repeat_dim(0, self.k); // [n*k, dim]
+        let neg_dots = (target_rows_rep.clone() * neg_rows.clone()).sum_dim(1); // [n*k, 1]
+        let neg_delta = sigmoid(neg_dots);
 
-        let positive_gradient = c_pos_row.clone().mul_scalar(error as f64);
-        let updated_c_pos = c_pos_row
-            - target_row
+        let updated_neg_rows = neg_rows.clone()
+            - target_rows_rep
                 .clone()
-                .mul_scalar(self.learning_rate * error as f64);
-        self.context_matrix = set_row(self.context_matrix.clone(), c_pos, updated_c_pos);
+                .mul(neg_delta.clone())
+                .mul_scalar(self.learning_rate);
+        let delta_neg = updated_neg_rows - neg_rows; // delta = new - old
+        self.context_matrix = self
+            .context_matrix
+            .clone()
+            .select_assign(0, neg_idx_t, delta_neg, IndexingUpdateOp::Add)
+            .detach();
 
-        let target_gradient = positive_gradient + negative_gradient;
-        let updated_target = target_row - target_gradient.mul_scalar(self.learning_rate);
-        self.target_matrix = set_row(self.target_matrix.clone(), target, updated_target);
+        let updated_ctx = ctx_rows.clone()
+            - target_rows
+                .clone()
+                .mul(errors.clone())
+                .mul_scalar(self.learning_rate);
+        let delta_ctx = updated_ctx - ctx_rows.clone();
+        self.context_matrix = self
+            .context_matrix
+            .clone()
+            .select_assign(0, ctx_idx_t, delta_ctx, IndexingUpdateOp::Add)
+            .detach();
+
+        let positive_gradient = ctx_rows.mul(errors);
+        let delta_target = positive_gradient.mul_scalar(-self.learning_rate);
+        self.target_matrix = self
+            .target_matrix
+            .clone()
+            .select_assign(0, target_idx_t, delta_target, IndexingUpdateOp::Add)
+            .detach();
     }
 
     pub fn print_vec(&self, index: usize) {
@@ -76,13 +110,7 @@ impl<'a> Word2Vec<'a> {
 
 fn get_row(m: &Tensor<Backend, 2>, idx: usize) -> Tensor<Backend, 1> {
     let dim = m.dims()[1];
-    m.clone().slice([idx..idx + 1, 0..dim]).squeeze()
-}
-
-fn set_row(m: Tensor<Backend, 2>, idx: usize, new_row: Tensor<Backend, 1>) -> Tensor<Backend, 2> {
-    let dim = m.dims()[1];
-    let row2d: Tensor<Backend, 2> = new_row.unsqueeze();
-    m.slice_assign([idx..idx + 1, 0..dim], row2d)
+    m.clone().slice([idx..idx + 1, 0..dim]).squeeze().detach()
 }
 
 fn get_weighted_index(unigram: &[usize], sum: usize) -> usize {
