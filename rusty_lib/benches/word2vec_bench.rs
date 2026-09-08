@@ -1,35 +1,90 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use rusty_lib::components::tokenizer::{bpe_encoder, bpe_tokenize, text_to_indices};
 use rusty_lib::components::w2v::build_model;
+use rusty_lib::util;
 
-fn make_vocab(n: usize) -> Vec<String> {
-    (0..n).map(|i| format!("w{i}")).collect()
+fn build_bpe_vocab_and_corpus(text: &str, num_tokens: u64) -> (Vec<String>, Vec<usize>) {
+    // only_new: false, so we get the FULL vocabulary (128 ASCII chars + all
+    // learned merges), since bpe_encoder needs the full vocab to rank merges
+    let vocabulary: Vec<String> = bpe_tokenize(text, num_tokens, false);
+
+    // bpe_encoder actually tokenizes the text using that vocabulary
+    let text_owned = text.to_string();
+    let encoded: Vec<String> = bpe_encoder(&vocabulary, &text_owned);
+
+    // Convert token strings to their vocab indices for training
+    let corpus: Vec<usize> = text_to_indices(&vocabulary, &encoded);
+
+    (vocabulary, corpus)
 }
 
-fn make_corpus(len: usize, vocab_size: usize) -> Vec<usize> {
-    (0..len).map(|i| i % vocab_size).collect()
+fn analogy_accuracy(
+    model: &rusty_lib::components::w2v::Word2Vec,
+    analogies: &[(usize, usize, usize, usize)],
+) -> f64 {
+    let mut correct = 0;
+    for &(a, b, cc, expected) in analogies {
+        let predicted = model.nearest_to_analogy(a, b, cc);
+        if predicted == expected {
+            correct += 1;
+        }
+    }
+    correct as f64 / analogies.len() as f64
+}
+
+fn run_quality_eval(vocab: &[String], corpus: &[usize]) {
+    println!("Real BPE vocab size: {}", vocab.len());
+    println!(
+        "Real BPE corpus size (total token occurrences): {}",
+        corpus.len()
+    );
+
+    let model = build_model(vocab, 128, 2, 5, 0.025);
+
+    // Still needs real analogy token indices — placeholder until you pick
+    // real analogy pairs present in the BPE vocabulary
+    let analogies: Vec<(usize, usize, usize, usize)> = vec![];
+    if !analogies.is_empty() {
+        let acc = analogy_accuracy(&model, &analogies);
+        println!("Analogy accuracy: {:.2}%", acc * 100.0);
+    }
+}
+
+// Mirrors train_naive's pair-generation loop exactly, just to get a count
+fn count_pairs(corpus_len: usize, window_size: usize) -> usize {
+    if corpus_len <= 2 * window_size {
+        return 0;
+    }
+    let valid_positions = corpus_len - 2 * window_size;
+    valid_positions * 2 * window_size // 2*window_size pairs per valid position
 }
 
 fn bench_train_batched(c: &mut Criterion) {
-    let mut group = c.benchmark_group("word2vec_train_batched");
-    group.sample_size(10);
-    let vocab_size = 10_000;
-    let vocab = make_vocab(vocab_size);
-    let corpus = make_corpus(2_000, vocab_size);
-    let unigram = vec![1usize; vocab_size];
-    for &batch_size in &[1usize, 8, 32, 128] {
-        group.bench_with_input(
-            BenchmarkId::new("batch_size", batch_size),
-            &batch_size,
-            |b, &bs| {
-                b.iter(|| {
-                    let mut model = build_model(&vocab, 128, 2, 5, 0.025);
-                    model.train_naive(&corpus, &unigram, bs);
-                });
-            },
-        );
-    }
-    group.finish();
-}
+    let text = util::retrieve_source("orwell_1984.txt");
+    let num_tokens = 1000;
+    let (vocab, corpus) = build_bpe_vocab_and_corpus(&text, num_tokens);
+    run_quality_eval(&vocab, &corpus);
 
+    let window_size = 2; // must match the window_size passed to build_model below
+    let k = 5; // must match the num_of_negs passed to build_model below
+    let num_pairs = count_pairs(corpus.len(), window_size);
+    let embeddings_per_pair = 2 + k; // 1 target + 1 positive context + k negative contexts
+    let total_embedding_updates = num_pairs * embeddings_per_pair;
+
+    println!("Corpus length: {}", corpus.len());
+    println!("Training pairs generated: {}", num_pairs);
+    println!("Embedding updates per pair: {}", embeddings_per_pair);
+    println!("Total embedding updates: {}", total_embedding_updates);
+
+    let unigram = vec![1usize; vocab.len()];
+    let batch_size = 128usize;
+
+    c.bench_function("word2vec_train_batch128", |b| {
+        b.iter(|| {
+            let mut model = build_model(&vocab, 128, 2, 5, 0.025);
+            model.train_naive(&corpus, &unigram, batch_size);
+        });
+    });
+}
 criterion_group!(benches, bench_train_batched);
 criterion_main!(benches);
