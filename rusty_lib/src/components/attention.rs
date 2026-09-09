@@ -30,6 +30,7 @@ const DV: i64 = 64;
 const D: i64 = 512;
 const BLOCKS: i64 = 2;
 const HEADS: i64 = 4;
+const EPSILON: f64 = 1e-8;
 
 // Implement method to create final input matrix of [Nxd]
 // Then method to calculate attention
@@ -49,6 +50,23 @@ struct Block {
     heads: Vec<Head>,
 }
 
+/// Applies LayerNorm to input
+pub fn layer_norm(
+    X: Tensor<Backend, 2>,
+    gamma: Tensor<Backend, 1>,
+    beta: Tensor<Backend, 1>,
+) -> Tensor<Backend, 2> {
+    let mean = X.clone().mean_dim(1);
+    let variance = X.clone().sub(mean.clone()).powf_scalar(2.).mean_dim(1);
+
+    let normalized = X.sub(mean).div(variance.add_scalar(EPSILON).sqrt());
+
+    normalized.mul(gamma.unsqueeze()).add(beta.unsqueeze())
+}
+
+/// initializes weights of all heads in all blocks
+///
+/// ith block in vec is indicative of a block
 pub fn init_weights(blocks: i64, heads: i64, d: i64, dk: i64, dv: i64) -> Vec<Block> {
     let mut res: Vec<Block> = Vec::with_capacity(blocks as usize);
     for i in 0..blocks {
