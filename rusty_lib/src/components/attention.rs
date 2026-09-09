@@ -40,15 +40,16 @@ const EPSILON: f64 = 1e-8;
 //  3 x 5 x 4 = 60 weight matrices
 // Implement LayerNorm
 
-struct Head {
-    query: Tensor<Backend, 2>,
-    key: Tensor<Backend, 2>,
-    value: Tensor<Backend, 2>,
+struct Block {
+    q: Tensor<Backend, 2>,     // [dxd]
+    k: Tensor<Backend, 2>,     // [dxd]
+    v: Tensor<Backend, 2>,     // [dxd]
+    o: Tensor<Backend, 2>,     // [dxd]
+    ffn_h: Tensor<Backend, 2>, // [dxff]
+    ffn_o: Tensor<Backend, 2>, // [ffxd]
 }
 
-struct Block {
-    heads: Vec<Head>,
-}
+pub fn forward_pass() {}
 
 /// Applies LayerNorm to input
 pub fn layer_norm(
@@ -67,22 +68,18 @@ pub fn layer_norm(
 /// initializes weights of all heads in all blocks
 ///
 /// ith block in vec is indicative of a block
-pub fn init_weights(blocks: i64, heads: i64, d: i64, dk: i64, dv: i64) -> Vec<Block> {
+pub fn init_weights(blocks: i64, d: i64, ff: i64) -> Vec<Block> {
     let mut res: Vec<Block> = Vec::with_capacity(blocks as usize);
-    for i in 0..blocks {
-        let mut l: Vec<Head> = Vec::with_capacity(heads as usize);
-        for i in 0..heads {
-            let q = create_random_matrix(d, dk);
-            let k = create_random_matrix(d, dk);
-            let v = create_random_matrix(d, dv);
 
-            l[i as usize] = Head {
-                query: q,
-                key: k,
-                value: v,
-            };
-        }
-        res[i as usize] = Block { heads: l };
+    for _ in 0..blocks {
+        res.push(Block {
+            q: create_random_matrix(d, d),
+            k: create_random_matrix(d, d),
+            v: create_random_matrix(d, d),
+            o: create_random_matrix(d, d),
+            ffn_h: create_random_matrix(d, ff),
+            ffn_o: create_random_matrix(ff, d),
+        });
     }
     res
 }
