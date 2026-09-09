@@ -1,8 +1,11 @@
 use std::collections::HashMap;
 
-use crate::math::{create_random_matrix, Backend};
+use crate::{
+    components::neural_net::{forward_pass, use_gelu, use_relu},
+    math::{create_random_matrix, create_random_vector, Backend},
+};
 use burn::{
-    tensor::{activation::softmax, ops::BoolElem, AsIndex, Bool, Int, TensorData},
+    tensor::{activation::softmax, Bool, Int, TensorData},
     Tensor,
 };
 
@@ -22,12 +25,31 @@ const EPSILON: f64 = 1e-8;
 // Implement LayerNorm
 
 struct Block {
-    wq: Tensor<Backend, 2>,      // [dxd]
-    wk: Tensor<Backend, 2>,      // [dxd]
-    wv: Tensor<Backend, 2>,      // [dxd]
-    wo: Tensor<Backend, 2>,      // [dxd]
-    w_ffn_h: Tensor<Backend, 2>, // [dxff]
-    w_ffn_o: Tensor<Backend, 2>, // [ffxd]
+    gamma_pre: Tensor<Backend, 1>,  // [1xd]
+    beta_pre: Tensor<Backend, 1>,   // [1xd]
+    gamma_post: Tensor<Backend, 1>, // [1xd]
+    beta_post: Tensor<Backend, 1>,  // [1xd]
+    wq: Tensor<Backend, 2>,         // [dxd]
+    wk: Tensor<Backend, 2>,         // [dxd]
+    wv: Tensor<Backend, 2>,         // [dxd]
+    wo: Tensor<Backend, 2>,         // [dxd]
+    w_ffn_h: Tensor<Backend, 2>,    // [dxff]
+    w_ffn_o: Tensor<Backend, 2>,    // [ffxd]
+}
+
+pub fn run_block(X: Tensor<Backend, 3>, b: &Block, d: usize, heads: usize) -> Tensor<Backend, 3> {
+    let l = layer_norm(X.clone(), b.gamma_pre.clone(), b.beta_pre.clone());
+    let A = X.clone().add(calculate_attention(l, heads, d, b));
+
+    let l = layer_norm(A.clone(), b.gamma_post.clone(), b.beta_post.clone());
+
+    let F = A.clone().add(forward_pass(
+        l,
+        b.w_ffn_h.clone(),
+        b.w_ffn_o.clone(),
+        use_gelu,
+    ));
+    F
 }
 
 /// input shape : batch x len x dimension
@@ -82,18 +104,17 @@ pub fn calculate_attention(
 
 /// Applies LayerNorm to input
 pub fn layer_norm(
-    X: Tensor<Backend, 2>,
+    X: Tensor<Backend, 3>,
     gamma: Tensor<Backend, 1>,
     beta: Tensor<Backend, 1>,
-) -> Tensor<Backend, 2> {
-    let mean = X.clone().mean_dim(1);
-    let variance = X.clone().sub(mean.clone()).powf_scalar(2.).mean_dim(1);
+) -> Tensor<Backend, 3> {
+    let mean = X.clone().mean_dim(2);
+    let variance = X.clone().sub(mean.clone()).powf_scalar(2.).mean_dim(2);
 
     let normalized = X.sub(mean).div(variance.add_scalar(EPSILON).sqrt());
 
     normalized.mul(gamma.unsqueeze()).add(beta.unsqueeze())
 }
-
 /// initializes weights of all heads in all blocks
 ///
 /// ith block in vec is indicative of a block
@@ -102,6 +123,10 @@ pub fn init_weights(blocks: i64, d: i64, ff: i64) -> Vec<Block> {
 
     for _ in 0..blocks {
         res.push(Block {
+            gamma_pre: create_random_vector(d),
+            beta_pre: create_random_vector(d),
+            gamma_post: create_random_vector(d),
+            beta_post: create_random_vector(d),
             wq: create_random_matrix(d, d),
             wk: create_random_matrix(d, d),
             wv: create_random_matrix(d, d),
