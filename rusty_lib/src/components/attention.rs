@@ -21,7 +21,7 @@ use std::collections::HashMap;
 
 use crate::math::Backend;
 use burn::{
-    tensor::{Float, TensorData},
+    tensor::{Int, TensorData},
     Tensor,
 };
 
@@ -37,10 +37,32 @@ const D: i64 = 512;
 //  3 x 5 x 4 = 60 weight matrices
 // Implement LayerNorm
 
+/// Creates combined embeddings from word and positional embeddings
+///
+/// Returns a 2D Tensor of shape [Nxd] where `N` is number of tokens and
+/// `d` is modal dimensionality
+pub fn generate_combined_embeddings(
+    tokens: &[String],
+    map: &HashMap<String, i64>,
+    embedding_matrix: Tensor<Backend, 2>,
+    d: usize,
+) -> Tensor<Backend, 2> {
+    let positional_embeddings = generate_positional_embeddings(tokens.len(), d);
+
+    let ids: Vec<i64> = tokens.iter().map(|t| map[t]).collect();
+
+    let device = embedding_matrix.device();
+    let indices =
+        Tensor::<Backend, 1, Int>::from_data(TensorData::new(ids, [tokens.len()]), &device);
+
+    let words = embedding_matrix.select(0, indices);
+    words.add(positional_embeddings)
+}
+
 /// Generates sinusoidal position embeddings for `length` tokens of dimensionality `d`
 ///
 /// Returns a 2D Tensor where each row vector `i` is the positional embedding for the `ith` token
-pub fn generate_positional_embeddings(length: usize, d: usize) -> Tensor<Backend, 2> {
+fn generate_positional_embeddings(length: usize, d: usize) -> Tensor<Backend, 2> {
     let mut res: Vec<Vec<f64>> = vec![vec![]; length];
 
     for pos in 0..length {
