@@ -7,7 +7,7 @@ use crate::{
 };
 use burn::{
     tensor::{
-        activation::{relu, softmax},
+        activation::{gelu, relu, softmax},
         Int,
     },
     Tensor,
@@ -22,6 +22,10 @@ type Activator = fn(Tensor<Backend, 2>) -> Tensor<Backend, 2>;
 
 pub fn use_relu(weights: Tensor<Backend, 2>) -> Tensor<Backend, 2> {
     relu(weights)
+}
+
+pub fn use_gelu(weights: Tensor<Backend, 2>) -> Tensor<Backend, 2> {
+    gelu(weights)
 }
 
 /// Takes X,y, optional previous weights, vocab_size, and activator function
@@ -113,6 +117,11 @@ pub fn backward_pass(
     (W_new, U_new)
 }
 
+/// takes an array of tokens and outputs a [1xnd] embedding
+///
+/// input - array of tokens
+/// token_map - mapping of strings to their indices
+/// embedding_matrix - |V|xd matrix holding all embeddings
 pub fn concatenate_embeddings(
     input: &[String],
     token_map: &HashMap<String, i64>,

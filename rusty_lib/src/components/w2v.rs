@@ -106,6 +106,47 @@ impl<'a> Word2Vec<'a> {
     pub fn adjust_training_rate(&mut self, new_rate: f64) {
         self.learning_rate = new_rate;
     }
+
+    pub fn embedding(&self, idx: usize) -> Tensor<Backend, 1> {
+        get_row(&self.target_matrix, idx)
+    }
+
+    pub fn cosine_similarity(&self, a: usize, b: usize) -> f32 {
+        let va = get_row(&self.target_matrix, a);
+        let vb = get_row(&self.target_matrix, b);
+        let dot = (va.clone() * vb.clone()).sum();
+        let norm_a = (va.clone() * va).sum().sqrt();
+        let norm_b = (vb.clone() * vb).sum().sqrt();
+        let cos = dot / (norm_a * norm_b);
+        cos.into_scalar()
+    }
+
+    pub fn nearest_to_analogy(&self, a: usize, b: usize, c: usize) -> usize {
+        // b - a + c ≈ target
+        let va = get_row(&self.target_matrix, a);
+        let vb = get_row(&self.target_matrix, b);
+        let vc = get_row(&self.target_matrix, c);
+        let query = vb - va + vc;
+
+        let vocab_size = self.vocabulary.len();
+        let mut best_idx = 0;
+        let mut best_sim = f32::MIN;
+        for idx in 0..vocab_size {
+            if idx == a || idx == b || idx == c {
+                continue; // conventional to exclude the input words themselves
+            }
+            let candidate = get_row(&self.target_matrix, idx);
+            let dot = (query.clone() * candidate.clone()).sum();
+            let norm_q = (query.clone() * query.clone()).sum().sqrt();
+            let norm_c = (candidate.clone() * candidate).sum().sqrt();
+            let sim: f32 = (dot / (norm_q * norm_c)).into_scalar();
+            if sim > best_sim {
+                best_sim = sim;
+                best_idx = idx;
+            }
+        }
+        best_idx
+    }
 }
 
 fn get_row(m: &Tensor<Backend, 2>, idx: usize) -> Tensor<Backend, 1> {

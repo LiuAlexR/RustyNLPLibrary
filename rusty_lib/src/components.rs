@@ -1,3 +1,4 @@
+pub mod attention;
 pub mod glove;
 pub mod logistic_regression;
 pub mod n_grams;
