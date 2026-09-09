@@ -1,27 +1,8 @@
-// To calculate Q,K,V matrices
-// we take X, which is the input matrix of size nxd, where n is number of tokens
-// and d is number of dimensions in the embedding
-// and do Q = XWq, K = XWk, V = XWv
-//
-// Attention score = Q x Transpose of K
-// Scale it down by dividing it by sqrt(dk), dk is dimension of key vectors
-// Attention weights = softmax(the above)
-// Output = Attention weights x V
-//
-// For multihead attention, we split input sequence into smaller segemnets,
-// process each separately, then concatenate all the weight matrices together
-//
-// Afterwards, we process through FFN
-// FFN(x) = ReLU(xW1 + b1)W2 + b2
-// where x is the input of the activation function
-// W1 and W2 are matrices, and b1 and b2 are bias vectors
-//
-
 use std::collections::HashMap;
 
 use crate::math::{create_random_matrix, Backend};
 use burn::{
-    tensor::{Int, TensorData},
+    tensor::{activation::softmax, ops::BoolElem, AsIndex, Bool, Int, TensorData},
     Tensor,
 };
 
@@ -41,15 +22,63 @@ const EPSILON: f64 = 1e-8;
 // Implement LayerNorm
 
 struct Block {
-    q: Tensor<Backend, 2>,     // [dxd]
-    k: Tensor<Backend, 2>,     // [dxd]
-    v: Tensor<Backend, 2>,     // [dxd]
-    o: Tensor<Backend, 2>,     // [dxd]
-    ffn_h: Tensor<Backend, 2>, // [dxff]
-    ffn_o: Tensor<Backend, 2>, // [ffxd]
+    wq: Tensor<Backend, 2>,      // [dxd]
+    wk: Tensor<Backend, 2>,      // [dxd]
+    wv: Tensor<Backend, 2>,      // [dxd]
+    wo: Tensor<Backend, 2>,      // [dxd]
+    w_ffn_h: Tensor<Backend, 2>, // [dxff]
+    w_ffn_o: Tensor<Backend, 2>, // [ffxd]
 }
 
-pub fn forward_pass() {}
+/// input shape : batch x len x dimension
+pub fn calculate_attention(
+    X: Tensor<Backend, 3>,
+    num_heads: usize,
+    d: usize,
+    b: &Block,
+) -> Tensor<Backend, 3> {
+    // shapes are still batch x len x d
+    let Q = X.clone().matmul(b.wq.clone().unsqueeze());
+    let K = X.clone().matmul(b.wk.clone().unsqueeze());
+    let V = X.clone().matmul(b.wv.clone().unsqueeze());
+
+    let batch_size = Q.dims()[0];
+    let len = Q.dims()[1];
+
+    // shapes are now batch x len x num_heads x (d / num_heads)
+    let Q: Tensor<Backend, 4> = Q.reshape([batch_size, len, num_heads, d / num_heads]);
+    let K: Tensor<Backend, 4> = K.reshape([batch_size, len, num_heads, d / num_heads]);
+    let V: Tensor<Backend, 4> = V.reshape([batch_size, len, num_heads, d / num_heads]);
+
+    // shapes are now batch x num_heads x len x (d / num_heads)
+    let Q = Q.swap_dims(1, 2);
+    let K = K.swap_dims(1, 2);
+    let V = V.swap_dims(1, 2);
+
+    // transposing K along the last 2 dims
+    // K is now of shape batch x num_heads (d / num_heads) x len
+    let K = K.swap_dims(2, 3);
+
+    // product shape is now batch x heads x len x len
+    let p = Q.matmul(K).div_scalar((d as f64).sqrt());
+    let mask = Tensor::<Backend, 4, Bool>::tril_mask(p.dims(), 0, &Default::default());
+    let p = p.mask_fill(mask, f64::MIN);
+
+    // softmaxing over the last dim, which represents the keys
+    let p = softmax(p, 3);
+
+    // shape is now batch x heads x len x d_h
+    let p = p.matmul(V);
+
+    // transposing back
+    // shape is now batch x len x heads x d_h
+    let p = p.swap_dims(1, 2);
+
+    // reshaping into shape batch x len x d
+    let p = p.reshape([batch_size, len, d]);
+
+    p.matmul(b.wo.clone().unsqueeze())
+}
 
 /// Applies LayerNorm to input
 pub fn layer_norm(
@@ -73,12 +102,12 @@ pub fn init_weights(blocks: i64, d: i64, ff: i64) -> Vec<Block> {
 
     for _ in 0..blocks {
         res.push(Block {
-            q: create_random_matrix(d, d),
-            k: create_random_matrix(d, d),
-            v: create_random_matrix(d, d),
-            o: create_random_matrix(d, d),
-            ffn_h: create_random_matrix(d, ff),
-            ffn_o: create_random_matrix(ff, d),
+            wq: create_random_matrix(d, d),
+            wk: create_random_matrix(d, d),
+            wv: create_random_matrix(d, d),
+            wo: create_random_matrix(d, d),
+            w_ffn_h: create_random_matrix(d, ff),
+            w_ffn_o: create_random_matrix(ff, d),
         });
     }
     res
