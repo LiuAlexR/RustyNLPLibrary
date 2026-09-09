@@ -19,7 +19,7 @@
 
 use std::collections::HashMap;
 
-use crate::math::Backend;
+use crate::math::{create_random_matrix, Backend};
 use burn::{
     tensor::{Int, TensorData},
     Tensor,
@@ -28,6 +28,8 @@ use burn::{
 const DK: i64 = 64;
 const DV: i64 = 64;
 const D: i64 = 512;
+const BLOCKS: i64 = 2;
+const HEADS: i64 = 4;
 
 // Implement method to create final input matrix of [Nxd]
 // Then method to calculate attention
@@ -36,6 +38,36 @@ const D: i64 = 512;
 //  If there are 5 heads and 4 blocks, then there are a total of
 //  3 x 5 x 4 = 60 weight matrices
 // Implement LayerNorm
+
+struct Head {
+    query: Tensor<Backend, 2>,
+    key: Tensor<Backend, 2>,
+    value: Tensor<Backend, 2>,
+}
+
+struct Block {
+    heads: Vec<Head>,
+}
+
+pub fn init_weights(blocks: i64, heads: i64, d: i64, dk: i64, dv: i64) -> Vec<Block> {
+    let mut res: Vec<Block> = Vec::with_capacity(blocks as usize);
+    for i in 0..blocks {
+        let mut l: Vec<Head> = Vec::with_capacity(heads as usize);
+        for i in 0..heads {
+            let q = create_random_matrix(d, dk);
+            let k = create_random_matrix(d, dk);
+            let v = create_random_matrix(d, dv);
+
+            l[i as usize] = Head {
+                query: q,
+                key: k,
+                value: v,
+            };
+        }
+        res[i as usize] = Block { heads: l };
+    }
+    res
+}
 
 /// Creates combined embeddings from word and positional embeddings
 ///
