@@ -30,6 +30,9 @@ pub struct Transformer {
     num_heads: usize,
     d: usize,
     E: Tensor<Backend, 2>,
+    gamma: Tensor<Backend, 1>,
+    beta: Tensor<Backend, 1>,
+    pad_id: usize,
 }
 
 pub struct Block {
@@ -56,6 +59,7 @@ pub fn transformer_backward_pass(
     let targets = targets.reshape([batch * len]);
 
     let loss = CrossEntropyLossConfig::new()
+        .with_pad_tokens(Some(vec![model.pad_id]))
         .init(&logits.device())
         .forward(logits, targets);
 
@@ -67,24 +71,29 @@ pub fn transformer_backward_pass(
     let u = e_inner - g.mul_scalar(lr);
     model.E = Tensor::from_inner(u).require_grad();
 
+    macro_rules! update {
+        ($field:expr) => {
+            let g = $field.grad(&grads).unwrap();
+            let updated = $field.clone().inner() - g.mul_scalar(lr);
+            $field = Tensor::from_inner(updated).require_grad();
+        };
+    }
+
+    update!(model.E);
+    update!(model.gamma);
+    update!(model.beta);
+
     for block in model.blocks.iter_mut() {
-        macro_rules! update {
-            ($field:ident) => {
-                let g = block.$field.grad(&grads).unwrap();
-                let updated = block.$field.clone().inner() - g.mul_scalar(lr);
-                block.$field = Tensor::from_inner(updated).require_grad();
-            };
-        }
-        update!(gamma_pre);
-        update!(beta_pre);
-        update!(gamma_post);
-        update!(beta_post);
-        update!(wq);
-        update!(wk);
-        update!(wv);
-        update!(wo);
-        update!(w_ffn_h);
-        update!(w_ffn_o);
+        update!(block.gamma_pre);
+        update!(block.beta_pre);
+        update!(block.gamma_post);
+        update!(block.beta_post);
+        update!(block.wq);
+        update!(block.wk);
+        update!(block.wv);
+        update!(block.wo);
+        update!(block.w_ffn_h);
+        update!(block.w_ffn_o);
     }
 }
 
@@ -96,6 +105,7 @@ pub fn transformer_forward_pass(
         X = run_block(X, block, model.d, model.num_heads);
     }
 
+    let X = layer_norm(X, model.gamma.clone(), model.beta.clone());
     X.matmul(model.E.clone().transpose().unsqueeze())
 }
 
