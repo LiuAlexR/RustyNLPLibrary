@@ -48,7 +48,30 @@ pub struct Block {
     w_ffn_o: Tensor<Backend, 2>,    // [ffxd]
 }
 
-pub fn transformer_backward_pass(
+pub fn init_transformer(
+    num_blocks: usize,
+    num_heads: usize,
+    d: usize,
+    ff: usize,
+    E: Tensor<Backend, 2>,
+    pad_id: usize,
+) -> Transformer {
+    let blocks = init_weights(num_blocks, d, ff);
+    let gamma = create_random_vector(d);
+    let beta = create_random_vector(d);
+
+    Transformer {
+        blocks,
+        num_heads,
+        d,
+        E,
+        gamma,
+        beta,
+        pad_id,
+    }
+}
+
+fn transformer_backward_pass(
     logits: Tensor<Backend, 3>,
     targets: Tensor<Backend, 2, Int>,
     model: &mut Transformer,
@@ -97,10 +120,7 @@ pub fn transformer_backward_pass(
     }
 }
 
-pub fn transformer_forward_pass(
-    mut X: Tensor<Backend, 3>,
-    model: &Transformer,
-) -> Tensor<Backend, 3> {
+fn transformer_forward_pass(mut X: Tensor<Backend, 3>, model: &Transformer) -> Tensor<Backend, 3> {
     for block in &model.blocks {
         X = run_block(X, block, model.d, model.num_heads);
     }
@@ -109,7 +129,7 @@ pub fn transformer_forward_pass(
     X.matmul(model.E.clone().transpose().unsqueeze())
 }
 
-pub fn run_block(X: Tensor<Backend, 3>, b: &Block, d: usize, heads: usize) -> Tensor<Backend, 3> {
+fn run_block(X: Tensor<Backend, 3>, b: &Block, d: usize, heads: usize) -> Tensor<Backend, 3> {
     let l = layer_norm(X.clone(), b.gamma_pre.clone(), b.beta_pre.clone());
     let A = X.clone().add(calculate_attention(l, heads, d, b));
 
@@ -124,7 +144,7 @@ pub fn run_block(X: Tensor<Backend, 3>, b: &Block, d: usize, heads: usize) -> Te
 }
 
 /// input shape : batch x len x dimension
-pub fn calculate_attention(
+fn calculate_attention(
     X: Tensor<Backend, 3>,
     num_heads: usize,
     d: usize,
@@ -174,7 +194,7 @@ pub fn calculate_attention(
 }
 
 /// Applies LayerNorm to input
-pub fn layer_norm(
+fn layer_norm(
     X: Tensor<Backend, 3>,
     gamma: Tensor<Backend, 1>,
     beta: Tensor<Backend, 1>,
@@ -189,7 +209,7 @@ pub fn layer_norm(
 /// initializes weights of all heads in all blocks
 ///
 /// ith block in vec is indicative of a block
-pub fn init_weights(blocks: i64, d: i64, ff: i64) -> Vec<Block> {
+fn init_weights(blocks: usize, d: usize, ff: usize) -> Vec<Block> {
     let mut res: Vec<Block> = Vec::with_capacity(blocks as usize);
 
     for _ in 0..blocks {
@@ -254,7 +274,7 @@ fn generate_positional_embeddings(length: usize, d: usize) -> Tensor<Backend, 2>
     Tensor::<Backend, 2>::from_data(t, &Default::default())
 }
 
-pub fn create_batches(
+fn create_batches(
     tokens: &[String],
     context_window: usize,
     batch_size: usize,
