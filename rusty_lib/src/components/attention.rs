@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 
 use crate::{
-    components::neural_net::{forward_pass, use_gelu, use_relu},
+    components::neural_net::{forward_pass, use_gelu},
     math::{create_random_matrix, create_random_vector, Backend},
 };
 use burn::{
+    nn::loss::CrossEntropyLossConfig,
     tensor::{activation::softmax, Bool, Int, TensorData},
     Tensor,
 };
@@ -24,7 +25,14 @@ const EPSILON: f64 = 1e-8;
 //  3 x 5 x 4 = 60 weight matrices
 // Implement LayerNorm
 
-struct Block {
+pub struct Transformer {
+    blocks: Vec<Block>,
+    num_heads: usize,
+    d: usize,
+    E: Tensor<Backend, 2>,
+}
+
+pub struct Block {
     gamma_pre: Tensor<Backend, 1>,  // [1xd]
     beta_pre: Tensor<Backend, 1>,   // [1xd]
     gamma_post: Tensor<Backend, 1>, // [1xd]
@@ -37,19 +45,72 @@ struct Block {
     w_ffn_o: Tensor<Backend, 2>,    // [ffxd]
 }
 
+pub fn transformer_backward_pass(
+    logits: Tensor<Backend, 3>,
+    targets: Tensor<Backend, 2, Int>,
+    model: &mut Transformer,
+    lr: f64,
+) {
+    let [batch, len, vocab] = logits.dims();
+    let logits = logits.reshape([batch * len, vocab]);
+    let targets = targets.reshape([batch * len]);
+
+    let loss = CrossEntropyLossConfig::new()
+        .init(&logits.device())
+        .forward(logits, targets);
+
+    let grads = loss.backward();
+
+    let g = model.E.grad(&grads).unwrap();
+    let e_inner = model.E.clone().inner();
+
+    let u = e_inner - g.mul_scalar(lr);
+    model.E = Tensor::from_inner(u).require_grad();
+
+    for block in model.blocks.iter_mut() {
+        macro_rules! update {
+            ($field:ident) => {
+                let g = block.$field.grad(&grads).unwrap();
+                let updated = block.$field.clone().inner() - g.mul_scalar(lr);
+                block.$field = Tensor::from_inner(updated).require_grad();
+            };
+        }
+        update!(gamma_pre);
+        update!(beta_pre);
+        update!(gamma_post);
+        update!(beta_post);
+        update!(wq);
+        update!(wk);
+        update!(wv);
+        update!(wo);
+        update!(w_ffn_h);
+        update!(w_ffn_o);
+    }
+}
+
+pub fn transformer_forward_pass(
+    mut X: Tensor<Backend, 3>,
+    model: &Transformer,
+) -> Tensor<Backend, 3> {
+    for block in &model.blocks {
+        X = run_block(X, block, model.d, model.num_heads);
+    }
+
+    X.matmul(model.E.clone().transpose().unsqueeze())
+}
+
 pub fn run_block(X: Tensor<Backend, 3>, b: &Block, d: usize, heads: usize) -> Tensor<Backend, 3> {
     let l = layer_norm(X.clone(), b.gamma_pre.clone(), b.beta_pre.clone());
     let A = X.clone().add(calculate_attention(l, heads, d, b));
 
     let l = layer_norm(A.clone(), b.gamma_post.clone(), b.beta_post.clone());
 
-    let F = A.clone().add(forward_pass(
+    A.clone().add(forward_pass(
         l,
         b.w_ffn_h.clone(),
         b.w_ffn_o.clone(),
         use_gelu,
-    ));
-    F
+    ))
 }
 
 /// input shape : batch x len x dimension
@@ -123,16 +184,16 @@ pub fn init_weights(blocks: i64, d: i64, ff: i64) -> Vec<Block> {
 
     for _ in 0..blocks {
         res.push(Block {
-            gamma_pre: create_random_vector(d),
-            beta_pre: create_random_vector(d),
-            gamma_post: create_random_vector(d),
-            beta_post: create_random_vector(d),
-            wq: create_random_matrix(d, d),
-            wk: create_random_matrix(d, d),
-            wv: create_random_matrix(d, d),
-            wo: create_random_matrix(d, d),
-            w_ffn_h: create_random_matrix(d, ff),
-            w_ffn_o: create_random_matrix(ff, d),
+            gamma_pre: create_random_vector(d).require_grad(),
+            beta_pre: create_random_vector(d).require_grad(),
+            gamma_post: create_random_vector(d).require_grad(),
+            beta_post: create_random_vector(d).require_grad(),
+            wq: create_random_matrix(d, d).require_grad(),
+            wk: create_random_matrix(d, d).require_grad(),
+            wv: create_random_matrix(d, d).require_grad(),
+            wo: create_random_matrix(d, d).require_grad(),
+            w_ffn_h: create_random_matrix(d, ff).require_grad(),
+            w_ffn_o: create_random_matrix(ff, d).require_grad(),
         });
     }
     res
