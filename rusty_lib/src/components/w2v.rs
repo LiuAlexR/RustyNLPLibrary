@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 // tensor only word2vec
 use crate::math::{create_random_matrix, Backend};
 use burn::tensor::{activation::sigmoid, IndexingUpdateOp, Int, Tensor};
@@ -149,6 +151,15 @@ impl<'a> Word2Vec<'a> {
     }
 }
 
+/// Builds the canonical token -> id map from vocabulary position.
+pub fn build_vocab_map(vocabulary: &[String]) -> HashMap<String, i64> {
+    vocabulary
+        .iter()
+        .enumerate()
+        .map(|(i, s)| (s.clone(), i as i64))
+        .collect()
+}
+
 fn get_row(m: &Tensor<Backend, 2>, idx: usize) -> Tensor<Backend, 1> {
     let dim = m.dims()[1];
     m.clone().slice([idx..idx + 1, 0..dim]).squeeze().detach()
@@ -171,15 +182,18 @@ pub fn build_model<'a>(
     window_size: usize,
     num_of_negs: usize,
     learning_rate: f64,
-) -> Word2Vec<'a> {
+) -> (Word2Vec<'a>, HashMap<String, i64>) {
     let vocab_size = vocab.len();
-    Word2Vec {
-        vocabulary: vocab,
-        target_matrix: create_random_matrix(vocab_size as i64, dimension as i64),
-        context_matrix: create_random_matrix(vocab_size as i64, dimension as i64),
-        window_size,
-        k: num_of_negs,
-        dim: dimension,
-        learning_rate,
-    }
+    (
+        Word2Vec {
+            vocabulary: vocab,
+            target_matrix: create_random_matrix(vocab_size, dimension),
+            context_matrix: create_random_matrix(vocab_size, dimension),
+            window_size,
+            k: num_of_negs,
+            dim: dimension,
+            learning_rate,
+        },
+        build_vocab_map(vocab),
+    )
 }

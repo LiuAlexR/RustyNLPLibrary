@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{cmp::Reverse, collections::HashMap};
 
 use crate::{
     components::neural_net::{forward_pass, use_gelu},
@@ -6,9 +6,11 @@ use crate::{
 };
 use burn::{
     nn::loss::CrossEntropyLossConfig,
-    tensor::{activation::softmax, Bool, Int, TensorData},
+    tensor::{activation::softmax, cast::ToElement, Bool, Int, TensorData},
     Tensor,
 };
+use rand::distr::weighted::WeightedIndex;
+use rand::distr::Distribution;
 
 const DK: i64 = 64;
 const DV: i64 = 64;
@@ -16,6 +18,7 @@ const D: i64 = 512;
 const BLOCKS: i64 = 2;
 const HEADS: i64 = 4;
 const EPSILON: f64 = 1e-8;
+const P_THRESHOLD: f64 = 0.9;
 
 // Implement method to create final input matrix of [Nxd]
 // Then method to calculate attention
@@ -49,6 +52,78 @@ pub struct Block {
     w_ffn_o: Tensor<Backend, 2>,    // [ffxd]
 }
 
+// implementing nucleus sampling
+pub fn predict(
+    prompt: &[String],
+    context_window: usize,
+    map: &HashMap<String, i64>,
+    model: &Transformer,
+    vocab: &[String],
+    num_tokens: usize,
+) -> String {
+    let mut tokens = prompt.to_vec();
+
+    for _ in 0..num_tokens {
+        let start = tokens.len().saturating_sub(context_window);
+        let context = &tokens[start..];
+
+        let (b, _) = create_batches(
+            context,
+            context_window,
+            1,
+            model.E.clone(),
+            map,
+            &model.pad_token,
+            model.d,
+        );
+
+        let o = softmax(transformer_forward_pass(b[0].clone(), model), 2);
+        let [_batch, len, vocab_size] = o.dims();
+        let p = o
+            .slice([0..1, len - 1..len, 0..vocab_size])
+            .reshape([vocab_size]);
+
+        let next = predict_token(p, vocab);
+        tokens.push(next);
+    }
+
+    tokens.join(" ")
+}
+
+pub fn predict_token(p: Tensor<Backend, 1>, vocab: &[String]) -> String {
+    let mut probs: Vec<(f64, usize)> = p
+        .into_data()
+        .to_vec::<f64>()
+        .unwrap()
+        .into_iter()
+        .enumerate()
+        .map(|(idx, prob)| (prob, idx))
+        .collect();
+
+    probs.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+
+    let mut c = 0.;
+    let mut i = 0;
+    let mut v = vec![];
+
+    while c <= P_THRESHOLD && i < probs.len() {
+        c += probs[i].0;
+        v.push(probs[i]);
+        i += 1;
+    }
+
+    let a: Vec<(f64, usize)> = v.into_iter().map(|(prob, idx)| (prob / c, idx)).collect();
+    let weights: Vec<f64> = a.iter().map(|(prob, _)| *prob).collect();
+
+    let dist = WeightedIndex::new(&weights).unwrap();
+
+    let mut rng = rand::rng();
+    let chosen = a[dist.sample(&mut rng)];
+    let id = chosen.1;
+
+    vocab[id].clone()
+}
+
 pub fn train(
     tokens: &[String],
     model: &mut Transformer,
@@ -63,7 +138,7 @@ pub fn train(
         batch_size,
         model.E.clone(),
         map,
-        model.pad_token.as_str(),
+        &model.pad_token,
         model.d,
     );
 
