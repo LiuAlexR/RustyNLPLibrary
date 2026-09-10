@@ -32,6 +32,7 @@ pub struct Transformer {
     E: Tensor<Backend, 2>,
     gamma: Tensor<Backend, 1>,
     beta: Tensor<Backend, 1>,
+    pad_token: String,
     pad_id: usize,
 }
 
@@ -48,12 +49,37 @@ pub struct Block {
     w_ffn_o: Tensor<Backend, 2>,    // [ffxd]
 }
 
+pub fn train(
+    tokens: &[String],
+    model: &mut Transformer,
+    context_window: usize,
+    batch_size: usize,
+    map: &HashMap<String, i64>,
+    learning_rate: f64,
+) {
+    let (v, t) = create_batches(
+        tokens,
+        context_window,
+        batch_size,
+        model.E.clone(),
+        map,
+        model.pad_token.as_str(),
+        model.d,
+    );
+
+    for (x, y) in v.into_iter().zip(t.into_iter()) {
+        let o = transformer_forward_pass(x, model);
+        transformer_backward_pass(o, y, model, learning_rate);
+    }
+}
+
 pub fn init_transformer(
     num_blocks: usize,
     num_heads: usize,
     d: usize,
     ff: usize,
     E: Tensor<Backend, 2>,
+    pad_token: String,
     pad_id: usize,
 ) -> Transformer {
     let blocks = init_weights(num_blocks, d, ff);
@@ -67,6 +93,7 @@ pub fn init_transformer(
         E,
         gamma,
         beta,
+        pad_token,
         pad_id,
     }
 }
@@ -87,12 +114,6 @@ fn transformer_backward_pass(
         .forward(logits, targets);
 
     let grads = loss.backward();
-
-    let g = model.E.grad(&grads).unwrap();
-    let e_inner = model.E.clone().inner();
-
-    let u = e_inner - g.mul_scalar(lr);
-    model.E = Tensor::from_inner(u).require_grad();
 
     macro_rules! update {
         ($field:expr) => {
@@ -175,7 +196,7 @@ fn calculate_attention(
     // product shape is now batch x heads x len x len
     let p = Q.matmul(K).div_scalar((d as f64).sqrt());
     let mask = Tensor::<Backend, 4, Bool>::tril_mask(p.dims(), 0, &Default::default());
-    let p = p.mask_fill(mask, f64::MIN);
+    let p = p.mask_fill(mask, f32::MIN);
 
     // softmaxing over the last dim, which represents the keys
     let p = softmax(p, 3);
@@ -282,22 +303,54 @@ fn create_batches(
     map: &HashMap<String, i64>,
     pad_token: &str,
     d: usize,
-) -> Vec<Tensor<Backend, 3>> {
-    let mut sequences: Vec<Tensor<Backend, 2>> = Vec::new();
+) -> (Vec<Tensor<Backend, 3>>, Vec<Tensor<Backend, 2, Int>>) {
+    let device = embedding_matrix.device();
+    let n = tokens.len();
 
-    for chunk in tokens.chunks(context_window) {
-        let mut chunk_tokens = chunk.to_vec();
+    let mut sequences: Vec<Tensor<Backend, 2>> = Vec::new();
+    let mut target_sequences: Vec<Tensor<Backend, 1, Int>> = Vec::new();
+
+    let mut start = 0;
+    while start < n {
+        let end = (start + context_window).min(n);
+
+        // input chunk, padded to context_window
+        let mut chunk_tokens = tokens[start..end].to_vec();
         while chunk_tokens.len() < context_window {
             chunk_tokens.push(pad_token.to_string());
         }
 
+        // target chunk: same window shifted one position later, padded likewise
+        let target_start = (start + 1).min(n);
+        let target_end = (target_start + context_window).min(n);
+        let mut target_tokens = tokens[target_start..target_end].to_vec();
+        while target_tokens.len() < context_window {
+            target_tokens.push(pad_token.to_string());
+        }
+
         let embedded =
             generate_combined_embeddings(&chunk_tokens, map, embedding_matrix.clone(), d);
-
         sequences.push(embedded);
+
+        let target_ids: Vec<i64> = target_tokens.iter().map(|t| map[t]).collect();
+        let target_tensor = Tensor::<Backend, 1, Int>::from_data(
+            TensorData::new(target_ids, [context_window]),
+            &device,
+        );
+        target_sequences.push(target_tensor);
+
+        start += context_window;
     }
-    sequences
+
+    let input_batches = sequences
         .chunks(batch_size)
         .map(|group| Tensor::stack::<3>(group.to_vec(), 0))
-        .collect()
+        .collect();
+
+    let target_batches = target_sequences
+        .chunks(batch_size)
+        .map(|group| Tensor::stack::<2>(group.to_vec(), 0))
+        .collect();
+
+    (input_batches, target_batches)
 }
