@@ -23,7 +23,10 @@ pub fn bigram_creation(vocab_size: usize, corpus: &Vec<usize>) -> Vec<HashMap<us
     // Array that counts the words that appear after the word in the array
     let mut vocab_arr: Vec<HashMap<usize, usize>> = vec![HashMap::new(); vocab_size];
     for i in 0..(corpus.len() - 1) {
-        vocab_arr[corpus[i]].entry(corpus[i + 1]).and_modify(|counter| *counter += 1).or_insert(1);
+        vocab_arr[corpus[i]]
+            .entry(corpus[i + 1])
+            .and_modify(|counter| *counter += 1)
+            .or_insert(1);
     }
     vocab_arr
 }
@@ -53,3 +56,4 @@ pub fn bigram_test(counts: &Vec<HashMap<usize, usize>>, unigram: &Vec<usize>) ->
     }
     res
 }
+

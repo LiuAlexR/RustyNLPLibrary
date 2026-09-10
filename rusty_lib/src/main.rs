@@ -1,47 +1,89 @@
-#![warn(unused_extern_crates)]
-use std::time::Instant;
+use std::io::{self, Write};
 
-// use rusty_lib::components::*;
-use rusty_lib::{components::{n_grams, tokenizer, word_2_vec::{self, Word2Vec}}, util};
+use rusty_lib::{
+    components::{
+        attention::{init_transformer, predict, train, Transformer},
+        n_grams::unigram_creation,
+        tokenizer::{bpe_encoder, bpe_tokenize, text_to_indices},
+        w2v::build_model,
+    },
+    util::retrieve_source,
+};
+
 fn main() {
-    // let x = util::retrieve_source("liu_hello_world.txt");
-    let x = util::retrieve_source("orwell_1984.txt");
-    // let tokens = 5000;
-    // let y = tokenizer::bpe_tokenize(&x, tokens, false);
-    // let _ = util::write_to_storage("orwell_token.txt", &util::vec_to_string("|", &y));
+    let corpus: String = retrieve_source("orwell_1984.txt");
 
-    let vocab = util::read_stored_token("orwell_token.txt");
-    let t = Instant::now();
-    let tokens = tokenizer::bpe_encoder(&vocab, &x);
-    let end = Instant::now() - t;
-    println!("Took {} ms!", end.as_millis());
-    let index_tokens = tokenizer::text_to_indices(&vocab, &tokens);
-    // let test = "I";
-    // let tokenized = tokenizer::bpe_encoder(&tokens, &test.to_string());
-    // println!("{:?}", tokenized);
-    // let tokenizeda = tokenizer::bpe_encoder_a(&tokens, &test.to_string());
-    // let int_tokens: Vec<usize> = tokenizer::text_to_indices(&tokens, &tokenizeda);
-    let unigram = n_grams::unigram_creation(vocab.len(), &index_tokens);
-    let bigram = n_grams::bigram_creation(vocab.len(), &index_tokens);
-    let out = n_grams::bigram_test(&bigram, &unigram);
-    let out_text: Vec<&str> = out
-        .into_iter()
-        .map(|x| tokenizer::usize_to_token(&vocab, x))
-        .collect();
-    println!("{:?}", out_text);
-    let test_str = " my text";
-    let test_tokens = tokenizer::bpe_encoder(&vocab, &test_str.to_string());
-    let int_tokens = tokenizer::text_to_indices(&vocab, &test_tokens);
-    println!("{:?}", test_tokens);
-    println!("{:?}", int_tokens); 
-    let mut word_2_vec_model: Word2Vec = word_2_vec::build_model(&vocab, 50, 5, 5, 0.01);
+    let num_merges: u64 = 2000;
+    let d: usize = 512;
+    let ff: usize = 2048;
+    let num_blocks: usize = 4;
+    let num_heads: usize = 8;
+    let context_window: usize = 64;
+    let batch_size: usize = 8;
+    let learning_rate: f64 = 1e-4;
+    let num_epochs: usize = 5;
 
-    word_2_vec_model.train_naive(&index_tokens, &unigram);
-    word_2_vec_model.adjust_training_rate(0.005);
-    word_2_vec_model.train_naive(&index_tokens, &unigram);
-    word_2_vec_model.adjust_training_rate(0.0025);
-    word_2_vec_model.train_naive(&index_tokens, &unigram);
-    word_2_vec_model.print_vec(196);
-    word_2_vec_model.print_vec(136);
-    word_2_vec_model.print_vec(212);
+    let w2v_window: usize = 5;
+    let w2v_negatives: usize = 5;
+    let w2v_lr: f64 = 0.025;
+    let w2v_batch_size: usize = 512;
+
+    // 1. Build vocab, tokenize
+    let vocab: Vec<String> = bpe_tokenize(&corpus, num_merges, false);
+    let tokens: Vec<String> = bpe_encoder(&vocab, &corpus);
+
+    // 2. Pretrain embeddings with Word2Vec — this also gives us the vocab map
+    let corpus_indices: Vec<usize> = text_to_indices(&vocab, &tokens);
+    let unigram: Vec<usize> = unigram_creation(vocab.len(), &corpus_indices);
+
+    let (mut w2v, map) = build_model(&vocab, d, w2v_window, w2v_negatives, w2v_lr);
+    w2v.train_naive(&corpus_indices, &unigram, w2v_batch_size);
+
+    let e = w2v.embedding_matrix().require_grad();
+
+    let pad_token = "<PADD>".to_string();
+    let pad_id = *map.get(&pad_token).expect("pad token missing from vocab") as usize;
+
+    // 3. Model init, seeded with pretrained embeddings
+    let mut model: Transformer =
+        init_transformer(num_blocks, num_heads, d, ff, e, pad_token, pad_id);
+
+    // 4. Train transformer
+    for epoch in 0..num_epochs {
+        train(
+            &tokens,
+            &mut model,
+            context_window,
+            batch_size,
+            &map,
+            learning_rate,
+        );
+        println!("epoch {epoch} done");
+    }
+
+    println!("Training complete. Enter a prompt (or 'quit' to exit):");
+
+    // 5. Interactive generation loop
+    loop {
+        print!("> ");
+        io::stdout().flush().unwrap();
+
+        let mut input = String::new();
+        if io::stdin().read_line(&mut input).is_err() {
+            println!("Failed to read input, try again.");
+            continue;
+        }
+
+        let input = input.trim();
+        if input.eq_ignore_ascii_case("quit") || input.eq_ignore_ascii_case("exit") {
+            break;
+        }
+        if input.is_empty() {
+            continue;
+        }
+
+        let prompt_tokens = bpe_encoder(&vocab, &input.to_string());
+        let output = predict(&prompt_tokens, context_window, &map, &model, &vocab, 20);
+        println!("{output}");
+    }
 }

@@ -15,6 +15,10 @@ pub struct Word2Vec<'a> {
 }
 
 impl<'a> Word2Vec<'a> {
+    pub fn embedding_matrix(&self) -> Tensor<Backend, 2> {
+        self.target_matrix.clone()
+    }
+
     pub fn train_naive(&mut self, corpus: &[usize], unigram: &[usize], batch_size: usize) {
         let unigram_sum: usize = unigram.iter().sum();
 

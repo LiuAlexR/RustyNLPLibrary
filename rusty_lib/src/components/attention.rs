@@ -93,11 +93,11 @@ pub fn predict(
 pub fn predict_token(p: Tensor<Backend, 1>, vocab: &[String]) -> String {
     let mut probs: Vec<(f64, usize)> = p
         .into_data()
-        .to_vec::<f64>()
+        .to_vec::<f32>()
         .unwrap()
         .into_iter()
         .enumerate()
-        .map(|(idx, prob)| (prob, idx))
+        .map(|(idx, prob)| (prob as f64, idx))
         .collect();
 
     probs.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
@@ -113,6 +113,13 @@ pub fn predict_token(p: Tensor<Backend, 1>, vocab: &[String]) -> String {
     }
 
     let a: Vec<(f64, usize)> = v.into_iter().map(|(prob, idx)| (prob / c, idx)).collect();
+
+    println!("Words we're going to choose from");
+    for (_, idx) in &a {
+        print!("{}, ", vocab[*idx]);
+    }
+    println!("\n");
+
     let weights: Vec<f64> = a.iter().map(|(prob, _)| *prob).collect();
 
     let dist = WeightedIndex::new(&weights).unwrap();
@@ -158,8 +165,8 @@ pub fn init_transformer(
     pad_id: usize,
 ) -> Transformer {
     let blocks = init_weights(num_blocks, d, ff);
-    let gamma = create_random_vector(d);
-    let beta = create_random_vector(d);
+    let gamma = create_random_vector(d).require_grad();
+    let beta = create_random_vector(d).require_grad();
 
     Transformer {
         blocks,
