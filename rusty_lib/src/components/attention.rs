@@ -347,7 +347,7 @@ pub fn generate_combined_embeddings(
     embedding_matrix: Tensor<Backend, 2>,
     d: usize,
 ) -> Tensor<Backend, 2> {
-    let positional_embeddings = generate_positional_embeddings(tokens.len(), d, &model.E);
+    let positional_embeddings = generate_positional_embeddings(tokens.len(), d);
 
     let ids: Vec<i64> = tokens.iter().map(|t| map[t]).collect();
 
@@ -362,26 +362,24 @@ pub fn generate_combined_embeddings(
 /// Generates sinusoidal position embeddings for `length` tokens of dimensionality `d`
 ///
 /// Returns a 2D Tensor where each row vector `i` is the positional embedding for the `ith` token
-fn generate_positional_embeddings(
-    length: usize,
-    d: usize,
-    reference: &Tensor<Backend, 2>,
-) -> Tensor<Backend, 2> {
-    let device = reference.device();
-
-    let mut data = vec![0.0f32; length * d];
+fn generate_positional_embeddings(length: usize, d: usize) -> Tensor<Backend, 2> {
+    let mut res: Vec<Vec<f64>> = vec![vec![]; length];
 
     for pos in 0..length {
-        for i in 0..d / 2 {
-            let denominator = 10000_f64.powf(2.0 * i as f64 / d as f64);
-            let angle = pos as f64 / denominator;
+        let pos = pos as f64;
+        let mut v: Vec<f64> = vec![0.; d];
 
-            data[pos * d + 2 * i] = angle.sin() as f32;
-            data[pos * d + 2 * i + 1] = angle.cos() as f32;
+        for i in 0..d / 2 {
+            let denominator = 10000_f64.powf(2. * i as f64 / d as f64);
+            v[2 * i] = (pos / denominator).sin();
+            v[2 * i + 1] = (pos / denominator).cos();
         }
+        res[pos as usize] = v.clone();
     }
 
-    Tensor::from_data(TensorData::new(data, [length, d]), &device)
+    let shape = [length, d];
+    let t = TensorData::new(res.into_iter().flatten().collect(), shape);
+    Tensor::<Backend, 2>::from_data(t, &Default::default())
 }
 fn create_batches(
     tokens: &[String],
