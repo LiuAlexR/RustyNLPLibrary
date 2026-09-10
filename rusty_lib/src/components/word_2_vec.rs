@@ -220,8 +220,8 @@ pub fn build_model<'a>(
     }
     Word2Vec {
         vocabulary: vocab,
-        target_matrix: create_random_matrix(VOCAB as i64, DIMENSIONS as i64),
-        context_matrix: create_random_matrix(VOCAB as i64, DIMENSIONS as i64),
+        target_matrix: create_random_matrix(VOCAB, DIMENSIONS),
+        context_matrix: create_random_matrix(VOCAB, DIMENSIONS),
         target_slice: rand_vec_1,
         context_slice: rand_vec_2,
         window_size: window_size_,

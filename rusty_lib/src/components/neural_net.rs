@@ -15,8 +15,8 @@ use burn::{
 use std::collections::HashMap;
 
 const LEARNING_RATE: f64 = 3.4;
-const NUM_HIDDEN_NODES: i64 = 3;
-const EPOCHS: i64 = 2;
+const NUM_HIDDEN_NODES: usize = 3;
+const EPOCHS: usize = 2;
 
 type Activator<const D: usize> = fn(Tensor<Backend, D>) -> Tensor<Backend, D>;
 
@@ -41,7 +41,7 @@ pub fn train<const D: usize>(
     X: Tensor<Backend, D>,
     y: Tensor<Backend, 1>,
     weights: Option<Vec<Tensor<Backend, 2>>>,
-    vocab_size: i64,
+    vocab_size: usize,
     act: Activator<D>,
 ) -> (Tensor<Backend, 2>, Tensor<Backend, 2>) {
     let X = add_bias(X);
@@ -49,7 +49,7 @@ pub fn train<const D: usize>(
     let (mut W, mut U) = match weights {
         Some(w) => (w[0].clone(), w[1].clone()),
         None => (
-            create_random_matrix(X.dims()[1] as i64, NUM_HIDDEN_NODES).require_grad(),
+            create_random_matrix(X.dims()[1], NUM_HIDDEN_NODES).require_grad(),
             create_random_matrix(NUM_HIDDEN_NODES, vocab_size).require_grad(),
         ),
     };
