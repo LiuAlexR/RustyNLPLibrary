@@ -243,3 +243,31 @@ fn generate_positional_embeddings(length: usize, d: usize) -> Tensor<Backend, 2>
     let t = TensorData::new(res.into_iter().flatten().collect(), shape);
     Tensor::<Backend, 2>::from_data(t, &Default::default())
 }
+
+pub fn create_batches(
+    tokens: &[String],
+    context_window: usize,
+    batch_size: usize,
+    embedding_matrix: Tensor<Backend, 2>,
+    map: &HashMap<String, i64>,
+    pad_token: &str,
+    d: usize,
+) -> Vec<Tensor<Backend, 3>> {
+    let mut sequences: Vec<Tensor<Backend, 2>> = Vec::new();
+
+    for chunk in tokens.chunks(context_window) {
+        let mut chunk_tokens = chunk.to_vec();
+        while chunk_tokens.len() < context_window {
+            chunk_tokens.push(pad_token.to_string());
+        }
+
+        let embedded =
+            generate_combined_embeddings(&chunk_tokens, map, embedding_matrix.clone(), d);
+
+        sequences.push(embedded);
+    }
+    sequences
+        .chunks(batch_size)
+        .map(|group| Tensor::stack::<3>(group.to_vec(), 0))
+        .collect()
+}
