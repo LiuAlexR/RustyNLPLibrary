@@ -44,6 +44,7 @@ pub fn bpe_tokenize(corpus: &str, num_tokens: u64, only_new: bool) -> Vec<String
             vocabulary.push(token);
         }
     }
+    vocabulary.push("<PADD>".to_string());
 
     if only_new {
         new_vocab

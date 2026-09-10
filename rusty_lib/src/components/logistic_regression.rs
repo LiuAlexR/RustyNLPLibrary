@@ -22,10 +22,10 @@ pub fn logistic_regression(
 }
 
 // adding bias column
-pub fn add_bias(input: Tensor<Backend, 2>) -> Tensor<Backend, 2> {
+pub fn add_bias<const D: usize>(input: Tensor<Backend, D>) -> Tensor<Backend, D> {
     let f = input.dims()[0];
-    let ones = Tensor::<Backend, 2>::ones([f, 1], &Default::default());
-    Tensor::<Backend, 2>::cat(vec![input, ones], 1)
+    let ones = Tensor::<Backend, D>::ones([f, 1], &Default::default());
+    Tensor::<Backend, D>::cat(vec![input, ones], 1)
 }
 
 pub fn grad(

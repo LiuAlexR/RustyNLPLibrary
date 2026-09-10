@@ -1,27 +1,12 @@
-// To calculate Q,K,V matrices
-// we take X, which is the input matrix of size nxd, where n is number of tokens
-// and d is number of dimensions in the embedding
-// and do Q = XWq, K = XWk, V = XWv
-//
-// Attention score = Q x Transpose of K
-// Scale it down by dividing it by sqrt(dk), dk is dimension of key vectors
-// Attention weights = softmax(the above)
-// Output = Attention weights x V
-//
-// For multihead attention, we split input sequence into smaller segemnets,
-// process each separately, then concatenate all the weight matrices together
-//
-// Afterwards, we process through FFN
-// FFN(x) = ReLU(xW1 + b1)W2 + b2
-// where x is the input of the activation function
-// W1 and W2 are matrices, and b1 and b2 are bias vectors
-//
-
 use std::collections::HashMap;
 
-use crate::math::{create_random_matrix, Backend};
+use crate::{
+    components::neural_net::{forward_pass, use_gelu},
+    math::{create_random_matrix, create_random_vector, Backend},
+};
 use burn::{
-    tensor::{Int, TensorData},
+    nn::loss::CrossEntropyLossConfig,
+    tensor::{activation::softmax, Bool, Int, TensorData},
     Tensor,
 };
 
@@ -40,45 +25,205 @@ const EPSILON: f64 = 1e-8;
 //  3 x 5 x 4 = 60 weight matrices
 // Implement LayerNorm
 
-struct Block {
-    q: Tensor<Backend, 2>,     // [dxd]
-    k: Tensor<Backend, 2>,     // [dxd]
-    v: Tensor<Backend, 2>,     // [dxd]
-    o: Tensor<Backend, 2>,     // [dxd]
-    ffn_h: Tensor<Backend, 2>, // [dxff]
-    ffn_o: Tensor<Backend, 2>, // [ffxd]
-}
-
-pub fn forward_pass() {}
-
-/// Applies LayerNorm to input
-pub fn layer_norm(
-    X: Tensor<Backend, 2>,
+pub struct Transformer {
+    blocks: Vec<Block>,
+    num_heads: usize,
+    d: usize,
+    E: Tensor<Backend, 2>,
     gamma: Tensor<Backend, 1>,
     beta: Tensor<Backend, 1>,
-) -> Tensor<Backend, 2> {
-    let mean = X.clone().mean_dim(1);
-    let variance = X.clone().sub(mean.clone()).powf_scalar(2.).mean_dim(1);
+    pad_id: usize,
+}
+
+pub struct Block {
+    gamma_pre: Tensor<Backend, 1>,  // [1xd]
+    beta_pre: Tensor<Backend, 1>,   // [1xd]
+    gamma_post: Tensor<Backend, 1>, // [1xd]
+    beta_post: Tensor<Backend, 1>,  // [1xd]
+    wq: Tensor<Backend, 2>,         // [dxd]
+    wk: Tensor<Backend, 2>,         // [dxd]
+    wv: Tensor<Backend, 2>,         // [dxd]
+    wo: Tensor<Backend, 2>,         // [dxd]
+    w_ffn_h: Tensor<Backend, 2>,    // [dxff]
+    w_ffn_o: Tensor<Backend, 2>,    // [ffxd]
+}
+
+pub fn init_transformer(
+    num_blocks: usize,
+    num_heads: usize,
+    d: usize,
+    ff: usize,
+    E: Tensor<Backend, 2>,
+    pad_id: usize,
+) -> Transformer {
+    let blocks = init_weights(num_blocks, d, ff);
+    let gamma = create_random_vector(d);
+    let beta = create_random_vector(d);
+
+    Transformer {
+        blocks,
+        num_heads,
+        d,
+        E,
+        gamma,
+        beta,
+        pad_id,
+    }
+}
+
+fn transformer_backward_pass(
+    logits: Tensor<Backend, 3>,
+    targets: Tensor<Backend, 2, Int>,
+    model: &mut Transformer,
+    lr: f64,
+) {
+    let [batch, len, vocab] = logits.dims();
+    let logits = logits.reshape([batch * len, vocab]);
+    let targets = targets.reshape([batch * len]);
+
+    let loss = CrossEntropyLossConfig::new()
+        .with_pad_tokens(Some(vec![model.pad_id]))
+        .init(&logits.device())
+        .forward(logits, targets);
+
+    let grads = loss.backward();
+
+    let g = model.E.grad(&grads).unwrap();
+    let e_inner = model.E.clone().inner();
+
+    let u = e_inner - g.mul_scalar(lr);
+    model.E = Tensor::from_inner(u).require_grad();
+
+    macro_rules! update {
+        ($field:expr) => {
+            let g = $field.grad(&grads).unwrap();
+            let updated = $field.clone().inner() - g.mul_scalar(lr);
+            $field = Tensor::from_inner(updated).require_grad();
+        };
+    }
+
+    update!(model.E);
+    update!(model.gamma);
+    update!(model.beta);
+
+    for block in model.blocks.iter_mut() {
+        update!(block.gamma_pre);
+        update!(block.beta_pre);
+        update!(block.gamma_post);
+        update!(block.beta_post);
+        update!(block.wq);
+        update!(block.wk);
+        update!(block.wv);
+        update!(block.wo);
+        update!(block.w_ffn_h);
+        update!(block.w_ffn_o);
+    }
+}
+
+fn transformer_forward_pass(mut X: Tensor<Backend, 3>, model: &Transformer) -> Tensor<Backend, 3> {
+    for block in &model.blocks {
+        X = run_block(X, block, model.d, model.num_heads);
+    }
+
+    let X = layer_norm(X, model.gamma.clone(), model.beta.clone());
+    X.matmul(model.E.clone().transpose().unsqueeze())
+}
+
+fn run_block(X: Tensor<Backend, 3>, b: &Block, d: usize, heads: usize) -> Tensor<Backend, 3> {
+    let l = layer_norm(X.clone(), b.gamma_pre.clone(), b.beta_pre.clone());
+    let A = X.clone().add(calculate_attention(l, heads, d, b));
+
+    let l = layer_norm(A.clone(), b.gamma_post.clone(), b.beta_post.clone());
+
+    A.clone().add(forward_pass(
+        l,
+        b.w_ffn_h.clone(),
+        b.w_ffn_o.clone(),
+        use_gelu,
+    ))
+}
+
+/// input shape : batch x len x dimension
+fn calculate_attention(
+    X: Tensor<Backend, 3>,
+    num_heads: usize,
+    d: usize,
+    b: &Block,
+) -> Tensor<Backend, 3> {
+    // shapes are still batch x len x d
+    let Q = X.clone().matmul(b.wq.clone().unsqueeze());
+    let K = X.clone().matmul(b.wk.clone().unsqueeze());
+    let V = X.clone().matmul(b.wv.clone().unsqueeze());
+
+    let batch_size = Q.dims()[0];
+    let len = Q.dims()[1];
+
+    // shapes are now batch x len x num_heads x (d / num_heads)
+    let Q: Tensor<Backend, 4> = Q.reshape([batch_size, len, num_heads, d / num_heads]);
+    let K: Tensor<Backend, 4> = K.reshape([batch_size, len, num_heads, d / num_heads]);
+    let V: Tensor<Backend, 4> = V.reshape([batch_size, len, num_heads, d / num_heads]);
+
+    // shapes are now batch x num_heads x len x (d / num_heads)
+    let Q = Q.swap_dims(1, 2);
+    let K = K.swap_dims(1, 2);
+    let V = V.swap_dims(1, 2);
+
+    // transposing K along the last 2 dims
+    // K is now of shape batch x num_heads (d / num_heads) x len
+    let K = K.swap_dims(2, 3);
+
+    // product shape is now batch x heads x len x len
+    let p = Q.matmul(K).div_scalar((d as f64).sqrt());
+    let mask = Tensor::<Backend, 4, Bool>::tril_mask(p.dims(), 0, &Default::default());
+    let p = p.mask_fill(mask, f64::MIN);
+
+    // softmaxing over the last dim, which represents the keys
+    let p = softmax(p, 3);
+
+    // shape is now batch x heads x len x d_h
+    let p = p.matmul(V);
+
+    // transposing back
+    // shape is now batch x len x heads x d_h
+    let p = p.swap_dims(1, 2);
+
+    // reshaping into shape batch x len x d
+    let p = p.reshape([batch_size, len, d]);
+
+    p.matmul(b.wo.clone().unsqueeze())
+}
+
+/// Applies LayerNorm to input
+fn layer_norm(
+    X: Tensor<Backend, 3>,
+    gamma: Tensor<Backend, 1>,
+    beta: Tensor<Backend, 1>,
+) -> Tensor<Backend, 3> {
+    let mean = X.clone().mean_dim(2);
+    let variance = X.clone().sub(mean.clone()).powf_scalar(2.).mean_dim(2);
 
     let normalized = X.sub(mean).div(variance.add_scalar(EPSILON).sqrt());
 
     normalized.mul(gamma.unsqueeze()).add(beta.unsqueeze())
 }
-
 /// initializes weights of all heads in all blocks
 ///
 /// ith block in vec is indicative of a block
-pub fn init_weights(blocks: i64, d: i64, ff: i64) -> Vec<Block> {
+fn init_weights(blocks: usize, d: usize, ff: usize) -> Vec<Block> {
     let mut res: Vec<Block> = Vec::with_capacity(blocks as usize);
 
     for _ in 0..blocks {
         res.push(Block {
-            q: create_random_matrix(d, d),
-            k: create_random_matrix(d, d),
-            v: create_random_matrix(d, d),
-            o: create_random_matrix(d, d),
-            ffn_h: create_random_matrix(d, ff),
-            ffn_o: create_random_matrix(ff, d),
+            gamma_pre: create_random_vector(d).require_grad(),
+            beta_pre: create_random_vector(d).require_grad(),
+            gamma_post: create_random_vector(d).require_grad(),
+            beta_post: create_random_vector(d).require_grad(),
+            wq: create_random_matrix(d, d).require_grad(),
+            wk: create_random_matrix(d, d).require_grad(),
+            wv: create_random_matrix(d, d).require_grad(),
+            wo: create_random_matrix(d, d).require_grad(),
+            w_ffn_h: create_random_matrix(d, ff).require_grad(),
+            w_ffn_o: create_random_matrix(ff, d).require_grad(),
         });
     }
     res
@@ -127,4 +272,32 @@ fn generate_positional_embeddings(length: usize, d: usize) -> Tensor<Backend, 2>
     let shape = [length, d];
     let t = TensorData::new(res.into_iter().flatten().collect(), shape);
     Tensor::<Backend, 2>::from_data(t, &Default::default())
+}
+
+fn create_batches(
+    tokens: &[String],
+    context_window: usize,
+    batch_size: usize,
+    embedding_matrix: Tensor<Backend, 2>,
+    map: &HashMap<String, i64>,
+    pad_token: &str,
+    d: usize,
+) -> Vec<Tensor<Backend, 3>> {
+    let mut sequences: Vec<Tensor<Backend, 2>> = Vec::new();
+
+    for chunk in tokens.chunks(context_window) {
+        let mut chunk_tokens = chunk.to_vec();
+        while chunk_tokens.len() < context_window {
+            chunk_tokens.push(pad_token.to_string());
+        }
+
+        let embedded =
+            generate_combined_embeddings(&chunk_tokens, map, embedding_matrix.clone(), d);
+
+        sequences.push(embedded);
+    }
+    sequences
+        .chunks(batch_size)
+        .map(|group| Tensor::stack::<3>(group.to_vec(), 0))
+        .collect()
 }

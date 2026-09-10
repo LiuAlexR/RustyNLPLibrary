@@ -18,13 +18,13 @@ const LEARNING_RATE: f64 = 3.4;
 const NUM_HIDDEN_NODES: i64 = 3;
 const EPOCHS: i64 = 2;
 
-type Activator = fn(Tensor<Backend, 2>) -> Tensor<Backend, 2>;
+type Activator<const D: usize> = fn(Tensor<Backend, D>) -> Tensor<Backend, D>;
 
-pub fn use_relu(weights: Tensor<Backend, 2>) -> Tensor<Backend, 2> {
+pub fn use_relu<const D: usize>(weights: Tensor<Backend, D>) -> Tensor<Backend, D> {
     relu(weights)
 }
 
-pub fn use_gelu(weights: Tensor<Backend, 2>) -> Tensor<Backend, 2> {
+pub fn use_gelu<const D: usize>(weights: Tensor<Backend, D>) -> Tensor<Backend, D> {
     gelu(weights)
 }
 
@@ -37,12 +37,12 @@ pub fn use_gelu(weights: Tensor<Backend, 2>) -> Tensor<Backend, 2> {
 /// weights - optional W,U weights to pass in
 /// vocab_size - how many tokens in memory
 /// act - activator function
-pub fn train(
-    X: Tensor<Backend, 2>,
+pub fn train<const D: usize>(
+    X: Tensor<Backend, D>,
     y: Tensor<Backend, 1>,
     weights: Option<Vec<Tensor<Backend, 2>>>,
     vocab_size: i64,
-    act: Activator,
+    act: Activator<D>,
 ) -> (Tensor<Backend, 2>, Tensor<Backend, 2>) {
     let X = add_bias(X);
 
@@ -67,18 +67,18 @@ pub fn train(
 /// W - weight matrix for hidden layer
 /// U - weight matrix for output layer
 /// act - activator function
-pub fn one_pass(
-    X: Tensor<Backend, 2>,
+pub fn one_pass<const D: usize>(
+    X: Tensor<Backend, D>,
     y: Tensor<Backend, 1>,
     W: Tensor<Backend, 2>,
     U: Tensor<Backend, 2>,
-    act: Activator,
+    act: Activator<D>,
 ) -> (Tensor<Backend, 2>, Tensor<Backend, 2>) {
     let output = forward_pass(X.clone(), W.clone(), U.clone(), act);
     let sm = softmax(output, 1);
     // cross entropy loss
     let loss = sm.log().mul(y.unsqueeze()).sum().neg();
-    backward_pass(W, U, loss.unsqueeze())
+    backward_pass(W, U, loss.unsqueeze::<D>())
 }
 
 /// Outputs result of forward pass
@@ -87,13 +87,15 @@ pub fn one_pass(
 /// W - weight matrix for hidden layer
 /// U - weight matrix for output layer
 /// act - activator function
-pub fn forward_pass(
-    X: Tensor<Backend, 2>,
+pub fn forward_pass<const D: usize>(
+    X: Tensor<Backend, D>,
     W: Tensor<Backend, 2>,
     U: Tensor<Backend, 2>,
-    act: Activator,
-) -> Tensor<Backend, 2> {
-    act(X.matmul(W)).matmul(U)
+    act: Activator<D>,
+) -> Tensor<Backend, D> {
+    let w = W.unsqueeze::<D>();
+    let u = U.unsqueeze::<D>();
+    act(X.matmul(w)).matmul(u)
 }
 
 /// outputs updated weights
@@ -102,10 +104,10 @@ pub fn forward_pass(
 /// W - weight matrix for hidden layer
 /// U - weight matrix for output layer
 /// output - loss of output of forward pass
-pub fn backward_pass(
+pub fn backward_pass<const D: usize>(
     W: Tensor<Backend, 2>,
     U: Tensor<Backend, 2>,
-    output: Tensor<Backend, 2>,
+    output: Tensor<Backend, D>,
 ) -> (Tensor<Backend, 2>, Tensor<Backend, 2>) {
     let grads = output.backward();
     let w_grad = W.grad(&grads).unwrap();

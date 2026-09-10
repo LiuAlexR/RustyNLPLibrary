@@ -22,7 +22,7 @@ pub const VOCAB: usize = 10000;
 /// # Returns
 ///
 /// a `Tensor<Backend,1>` with random initialized values
-pub fn create_random_vector(x: i64) -> Tensor<Backend, 1> {
+pub fn create_random_vector(x: usize) -> Tensor<Backend, 1> {
     let device = Default::default();
     let dis = Distribution::Uniform(0., 1.);
 
@@ -35,7 +35,7 @@ pub fn create_random_vector(x: i64) -> Tensor<Backend, 1> {
 ///
 /// Usage:
 /// `let ten = create_random_matrix(100,100);`
-pub fn create_random_matrix(x: i64, y: i64) -> Tensor<Backend, 2> {
+pub fn create_random_matrix(x: usize, y: usize) -> Tensor<Backend, 2> {
     let device = Default::default();
     let dis = Distribution::Uniform(0., 1.);
     Tensor::<Backend, 2>::random([x, y], dis, &device)
