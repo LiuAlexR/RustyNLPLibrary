@@ -345,10 +345,8 @@ pub fn generate_combined_embeddings(
     tokens: &[String],
     map: &HashMap<String, i64>,
     embedding_matrix: Tensor<Backend, 2>,
-    d: usize,
+    positional_embeddings: &Tensor<Backend, 2>,
 ) -> Tensor<Backend, 2> {
-    let positional_embeddings = generate_positional_embeddings(tokens.len(), d);
-
     let ids: Vec<i64> = tokens.iter().map(|t| map[t]).collect();
 
     let device = embedding_matrix.device();
@@ -356,7 +354,7 @@ pub fn generate_combined_embeddings(
         Tensor::<Backend, 1, Int>::from_data(TensorData::new(ids, [tokens.len()]), &device);
 
     let words = embedding_matrix.select(0, indices);
-    words.add(positional_embeddings)
+    words.add(positional_embeddings.clone())
 }
 
 /// Generates sinusoidal position embeddings for `length` tokens of dimensionality `d`
@@ -393,6 +391,9 @@ fn create_batches(
     let device = embedding_matrix.device();
     let n = tokens.len();
 
+    // computed once — every chunk is padded to context_window, so this is reused as-is
+    let pos_emb = generate_positional_embeddings(context_window, d);
+
     let mut sequences: Vec<Tensor<Backend, 2>> = Vec::new();
     let mut target_sequences: Vec<Tensor<Backend, 1, Int>> = Vec::new();
 
@@ -400,13 +401,11 @@ fn create_batches(
     while start < n {
         let end = (start + context_window).min(n);
 
-        // input chunk, padded to context_window
         let mut chunk_tokens = tokens[start..end].to_vec();
         while chunk_tokens.len() < context_window {
             chunk_tokens.push(pad_token.to_string());
         }
 
-        // target chunk: same window shifted one position later, padded likewise
         let target_start = (start + 1).min(n);
         let target_end = (target_start + context_window).min(n);
         let mut target_tokens = tokens[target_start..target_end].to_vec();
@@ -415,7 +414,7 @@ fn create_batches(
         }
 
         let embedded =
-            generate_combined_embeddings(&chunk_tokens, map, embedding_matrix.clone(), d);
+            generate_combined_embeddings(&chunk_tokens, map, embedding_matrix.clone(), &pos_emb);
         sequences.push(embedded);
 
         let target_ids: Vec<i64> = target_tokens.iter().map(|t| map[t]).collect();
@@ -425,7 +424,7 @@ fn create_batches(
         );
         target_sequences.push(target_tensor);
 
-        start += 16;
+        start += context_window;
     }
 
     let input_batches = sequences

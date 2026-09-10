@@ -20,7 +20,7 @@ fn main() {
     let num_blocks: usize = 2;
     let num_heads: usize = 4;
     let context_window: usize = 64;
-    let batch_size: usize = 8;
+    let batch_size: usize = 64;
     let learning_rate: f64 = 1e-3;
     let num_epochs: usize = 5;
 
