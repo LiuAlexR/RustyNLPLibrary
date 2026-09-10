@@ -78,11 +78,12 @@ pub fn predict(
         );
 
         let o = softmax(transformer_forward_pass(b[0].clone(), model), 2);
-        let [_batch, len, vocab_size] = o.dims();
-        let p = o
-            .slice([0..1, len - 1..len, 0..vocab_size])
-            .reshape([vocab_size]);
+        let [_, _, vocab_size] = o.dims();
+        let actual_len = context.len();
 
+        let p = o
+            .slice([0..1, actual_len - 1..actual_len, 0..vocab_size])
+            .reshape([vocab_size]);
         let next = predict_token(p, vocab);
         tokens.push(next);
     }
@@ -107,18 +108,17 @@ pub fn predict_token(p: Tensor<Backend, 1>, vocab: &[String]) -> String {
     let mut v = vec![];
 
     while c <= P_THRESHOLD && i < probs.len() {
+        if vocab[probs[i].1] == "<PADD>" {
+            i += 1;
+            continue;
+        }
+
         c += probs[i].0;
         v.push(probs[i]);
         i += 1;
     }
 
     let a: Vec<(f64, usize)> = v.into_iter().map(|(prob, idx)| (prob / c, idx)).collect();
-
-    println!("Words we're going to choose from");
-    for (_, idx) in &a {
-        print!("{}, ", vocab[*idx]);
-    }
-    println!("\n");
 
     let weights: Vec<f64> = a.iter().map(|(prob, _)| *prob).collect();
 
@@ -165,9 +165,8 @@ pub fn init_transformer(
     pad_id: usize,
 ) -> Transformer {
     let blocks = init_weights(num_blocks, d, ff);
-    let gamma = create_random_vector(d).require_grad();
-    let beta = create_random_vector(d).require_grad();
-
+    let gamma = Tensor::<Backend, 1>::ones([d], &Default::default()).require_grad();
+    let beta = Tensor::<Backend, 1>::zeros([d], &Default::default()).require_grad();
     Transformer {
         blocks,
         num_heads,
@@ -194,6 +193,8 @@ fn transformer_backward_pass(
         .with_pad_tokens(Some(vec![model.pad_id]))
         .init(&logits.device())
         .forward(logits, targets);
+
+    // println!("loss: {}", loss.clone().into_scalar());
 
     let grads = loss.backward();
 
@@ -276,8 +277,12 @@ fn calculate_attention(
     let K = K.swap_dims(2, 3);
 
     // product shape is now batch x heads x len x len
-    let p = Q.matmul(K).div_scalar((d as f64).sqrt());
+    let head_dim = d / num_heads;
+    // let p = Q.matmul(K).div_scalar((d as f64).sqrt());
+    let p = Q.matmul(K).div_scalar((head_dim as f64).sqrt());
+
     let mask = Tensor::<Backend, 4, Bool>::tril_mask(p.dims(), 0, &Default::default());
+    let mask = mask.bool_not();
     let p = p.mask_fill(mask, f32::MIN);
 
     // softmaxing over the last dim, which represents the keys
@@ -317,10 +322,10 @@ fn init_weights(blocks: usize, d: usize, ff: usize) -> Vec<Block> {
 
     for _ in 0..blocks {
         res.push(Block {
-            gamma_pre: create_random_vector(d).require_grad(),
-            beta_pre: create_random_vector(d).require_grad(),
-            gamma_post: create_random_vector(d).require_grad(),
-            beta_post: create_random_vector(d).require_grad(),
+            gamma_pre: Tensor::<Backend, 1>::ones([d], &Default::default()).require_grad(),
+            beta_pre: Tensor::<Backend, 1>::zeros([d], &Default::default()).require_grad(),
+            gamma_post: Tensor::<Backend, 1>::ones([d], &Default::default()).require_grad(),
+            beta_post: Tensor::<Backend, 1>::zeros([d], &Default::default()).require_grad(),
             wq: create_random_matrix(d, d).require_grad(),
             wk: create_random_matrix(d, d).require_grad(),
             wv: create_random_matrix(d, d).require_grad(),
@@ -342,7 +347,7 @@ pub fn generate_combined_embeddings(
     embedding_matrix: Tensor<Backend, 2>,
     d: usize,
 ) -> Tensor<Backend, 2> {
-    let positional_embeddings = generate_positional_embeddings(tokens.len(), d);
+    let positional_embeddings = generate_positional_embeddings(tokens.len(), d, &model.E);
 
     let ids: Vec<i64> = tokens.iter().map(|t| map[t]).collect();
 
@@ -357,26 +362,27 @@ pub fn generate_combined_embeddings(
 /// Generates sinusoidal position embeddings for `length` tokens of dimensionality `d`
 ///
 /// Returns a 2D Tensor where each row vector `i` is the positional embedding for the `ith` token
-fn generate_positional_embeddings(length: usize, d: usize) -> Tensor<Backend, 2> {
-    let mut res: Vec<Vec<f64>> = vec![vec![]; length];
+fn generate_positional_embeddings(
+    length: usize,
+    d: usize,
+    reference: &Tensor<Backend, 2>,
+) -> Tensor<Backend, 2> {
+    let device = reference.device();
+
+    let mut data = vec![0.0f32; length * d];
 
     for pos in 0..length {
-        let pos = pos as f64;
-        let mut v: Vec<f64> = vec![0.; d];
-
         for i in 0..d / 2 {
-            let denominator = 10000_f64.powf(2. * i as f64 / d as f64);
-            v[2 * i] = (pos / denominator).sin();
-            v[2 * i + 1] = (pos / denominator).cos();
+            let denominator = 10000_f64.powf(2.0 * i as f64 / d as f64);
+            let angle = pos as f64 / denominator;
+
+            data[pos * d + 2 * i] = angle.sin() as f32;
+            data[pos * d + 2 * i + 1] = angle.cos() as f32;
         }
-        res[pos as usize] = v.clone();
     }
 
-    let shape = [length, d];
-    let t = TensorData::new(res.into_iter().flatten().collect(), shape);
-    Tensor::<Backend, 2>::from_data(t, &Default::default())
+    Tensor::from_data(TensorData::new(data, [length, d]), &device)
 }
-
 fn create_batches(
     tokens: &[String],
     context_window: usize,
@@ -421,7 +427,7 @@ fn create_batches(
         );
         target_sequences.push(target_tensor);
 
-        start += context_window;
+        start += 16;
     }
 
     let input_batches = sequences

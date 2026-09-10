@@ -22,28 +22,100 @@ use burn::Tensor;
 /// # Examples
 ///
 /// `let vocab = bpe_tokenize(corpus, 5000, true);`
-pub fn bpe_tokenize(corpus: &str, num_tokens: u64, only_new: bool) -> Vec<String> {
+// pub fn bpe_tokenize(corpus: &str, num_tokens: u64, only_new: bool) -> Vec<String> {
+//     let mut vocabulary: Vec<String> = (0..128).map(|b: u8| (b as char).to_string()).collect();
+//
+//     let mut new_vocab: Vec<String> = Vec::default();
+//     let arr: Vec<char> = corpus.chars().collect();
+//     let (token, mut map) = combine(&arr);
+//
+//     if only_new {
+//         new_vocab.push(token.clone());
+//     }
+//     vocabulary.push(token);
+//
+//     for _ in 1..num_tokens {
+//         let token = combine_with_index(&arr, &vocabulary, &mut map);
+//
+//         if let Some(token) = token {
+//             if only_new {
+//                 new_vocab.push(token.clone());
+//             }
+//             vocabulary.push(token);
+//         }
+//     }
+//     vocabulary.push("<PADD>".to_string());
+//
+//     if only_new {
+//         new_vocab
+//     } else {
+//         vocabulary
+//     }
+// }
+pub fn bpe_tokenize(
+    corpus: &str,
+    num_tokens: u64,
+    only_new: bool,
+) -> Vec<String> {
+
     let mut vocabulary: Vec<String> = (0..128).map(|b: u8| (b as char).to_string()).collect();
 
-    let mut new_vocab: Vec<String> = Vec::default();
-    let arr: Vec<char> = corpus.chars().collect();
-    let (token, mut map) = combine(&arr);
+    let mut new_vocab = Vec::new();
 
-    if only_new {
-        new_vocab.push(token.clone());
-    }
-    vocabulary.push(token);
+    let mut corpus_tokens: Vec<Vec<String>> = corpus
+        .split_whitespace()
+        .map(|word| {
+            std::iter::once(" ".to_string())
+                .chain(word.chars().map(String::from))
+                .collect()
+        })
+        .collect();
 
-    for _ in 1..num_tokens {
-        let token = combine_with_index(&arr, &vocabulary, &mut map);
+    for _ in 0..num_tokens {
+        let mut pair_counts: HashMap<(String, String), u64> = HashMap::new();
 
-        if let Some(token) = token {
-            if only_new {
-                new_vocab.push(token.clone());
+        // Count all adjacent pairs.
+        for tokens in &corpus_tokens {
+            for i in 0..tokens.len().saturating_sub(1) {
+                let pair = (
+                    tokens[i].clone(),
+                    tokens[i + 1].clone(),
+                );
+
+                *pair_counts.entry(pair).or_insert(0) += 1;
             }
-            vocabulary.push(token);
+        }
+
+        // Most frequent pair.
+        let Some(((left, right), _)) =
+            pair_counts.into_iter().max_by_key(|(_, count)| *count)
+        else {
+            break;
+        };
+
+        let merged = format!("{}{}", left, right);
+
+        vocabulary.push(merged.clone());
+
+        if only_new {
+            new_vocab.push(merged.clone());
+        }
+
+        // Merge this pair everywhere in the corpus.
+        for tokens in &mut corpus_tokens {
+            let mut i = 0;
+
+            while i + 1 < tokens.len() {
+                if tokens[i] == left && tokens[i + 1] == right {
+                    tokens[i] = merged.clone();
+                    tokens.remove(i + 1);
+                } else {
+                    i += 1;
+                }
+            }
         }
     }
+
     vocabulary.push("<PADD>".to_string());
 
     if only_new {
@@ -52,6 +124,7 @@ pub fn bpe_tokenize(corpus: &str, num_tokens: u64, only_new: bool) -> Vec<String
         vocabulary
     }
 }
+
 
 // takes last token added and goes through its indices vector to create new tokens
 fn combine_with_index(

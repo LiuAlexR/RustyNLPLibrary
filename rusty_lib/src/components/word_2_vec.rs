@@ -19,10 +19,8 @@ impl<'a> Word2Vec<'a> {
     pub fn init(&mut self, vocab: &'a [String]) -> () {
         self.vocabulary = vocab;
         let vocab_size = vocab.len();
-        self.target_matrix =
-            crate::math::create_random_matrix_custom_dimensions(vocab_size, self.dim);
-        self.context_matrix =
-            crate::math::create_random_matrix_custom_dimensions(vocab_size, self.dim);
+        self.target_matrix = create_random_matrix(vocab_size, self.dim);
+        self.context_matrix = create_random_matrix(vocab_size, self.dim);
     }
     // pub fn init_naive(&mut self, vocab: &'a [String]) -> () {
     //     let range = Uniform::new(-1.0, 1.0).expect("Failed");

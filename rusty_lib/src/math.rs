@@ -24,11 +24,13 @@ pub const VOCAB: usize = 10000;
 /// a `Tensor<Backend,1>` with random initialized values
 pub fn create_random_vector(x: usize) -> Tensor<Backend, 1> {
     let device = Default::default();
-    let dis = Distribution::Uniform(0., 1.);
+
+    let limit = (6.0 / x as f64).sqrt();
+
+    let dis = Distribution::Uniform(-limit, limit);
 
     Tensor::<Backend, 1>::random([x], dis, &device)
 }
-
 /// Creates random 2D matrix
 ///
 /// Generates a 2D matrix with random initalized values
@@ -37,19 +39,14 @@ pub fn create_random_vector(x: usize) -> Tensor<Backend, 1> {
 /// `let ten = create_random_matrix(100,100);`
 pub fn create_random_matrix(x: usize, y: usize) -> Tensor<Backend, 2> {
     let device = Default::default();
-    let dis = Distribution::Uniform(0., 1.);
+
+    let limit = (6.0 / (x + y) as f64).sqrt();
+
+    let dis = Distribution::Uniform(-limit, limit);
+
     Tensor::<Backend, 2>::random([x, y], dis, &device)
 }
 
-pub fn create_random_matrix_custom_dimensions(
-    vocab_size: usize,
-    dimensions: usize,
-) -> Tensor<Backend, 2> {
-    let device = Default::default();
-    let dis = Distribution::Uniform(0., 1.);
-    let shape = [vocab_size, dimensions];
-    Tensor::<Backend, 2>::random(shape, dis, &device)
-}
 /// Calculates loss of target, context word, and negatives
 ///
 /// Page 109 of the book, eq 5.21 is what is implemented

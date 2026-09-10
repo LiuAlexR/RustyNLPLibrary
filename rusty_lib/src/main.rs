@@ -1,4 +1,5 @@
 use std::io::{self, Write};
+use std::time::Instant;
 
 use rusty_lib::{
     components::{
@@ -14,13 +15,13 @@ fn main() {
     let corpus: String = retrieve_source("orwell_1984.txt");
 
     let num_merges: u64 = 2000;
-    let d: usize = 512;
-    let ff: usize = 2048;
-    let num_blocks: usize = 4;
-    let num_heads: usize = 8;
+    let d: usize = 64;
+    let ff: usize = 256;
+    let num_blocks: usize = 2;
+    let num_heads: usize = 4;
     let context_window: usize = 64;
     let batch_size: usize = 8;
-    let learning_rate: f64 = 1e-4;
+    let learning_rate: f64 = 1e-3;
     let num_epochs: usize = 5;
 
     let w2v_window: usize = 5;
@@ -28,9 +29,13 @@ fn main() {
     let w2v_lr: f64 = 0.025;
     let w2v_batch_size: usize = 512;
 
+    let start = Instant::now();
     // 1. Build vocab, tokenize
     let vocab: Vec<String> = bpe_tokenize(&corpus, num_merges, false);
     let tokens: Vec<String> = bpe_encoder(&vocab, &corpus);
+    let elapsed = start.elapsed();
+
+    println!("Took {:?} s to tokenize", start.elapsed().as_secs());
 
     // 2. Pretrain embeddings with Word2Vec — this also gives us the vocab map
     let corpus_indices: Vec<usize> = text_to_indices(&vocab, &tokens);
@@ -39,8 +44,13 @@ fn main() {
     let (mut w2v, map) = build_model(&vocab, d, w2v_window, w2v_negatives, w2v_lr);
     w2v.train_naive(&corpus_indices, &unigram, w2v_batch_size);
 
+    let start = Instant::now();
     let e = w2v.embedding_matrix().require_grad();
 
+    println!(
+        "Took {:?} s to create embeddings",
+        start.elapsed().as_secs()
+    );
     let pad_token = "<PADD>".to_string();
     let pad_id = *map.get(&pad_token).expect("pad token missing from vocab") as usize;
 
@@ -50,6 +60,7 @@ fn main() {
 
     // 4. Train transformer
     for epoch in 0..num_epochs {
+        let start = Instant::now();
         train(
             &tokens,
             &mut model,
@@ -59,6 +70,7 @@ fn main() {
             learning_rate,
         );
         println!("epoch {epoch} done");
+        println!("Took {:?} s", start.elapsed().as_secs());
     }
 
     println!("Training complete. Enter a prompt (or 'quit' to exit):");
@@ -83,7 +95,7 @@ fn main() {
         }
 
         let prompt_tokens = bpe_encoder(&vocab, &input.to_string());
-        let output = predict(&prompt_tokens, context_window, &map, &model, &vocab, 20);
+        let output = predict(&prompt_tokens, context_window, &map, &model, &vocab, 1);
         println!("{output}");
     }
 }
