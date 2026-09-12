@@ -1,7 +1,7 @@
 use burn::tensor::{Distribution, Tensor};
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use rusty_lib::components::neural_net::{forward_pass, one_pass, use_relu};
-use rusty_lib::math::{create_random_matrix_custom_dimensions, Backend};
+use rusty_lib::math::{create_random_matrix, Backend};
 
 const INPUT_DIM: usize = 301; // window*dim + bias — set to your real value
 const HIDDEN: usize = 3;
@@ -12,8 +12,8 @@ fn bench_forward(c: &mut Criterion) {
 
     for &vocab_size in &[1_000usize, 10_000, 50_000] {
         let x = Tensor::<Backend, 2>::random([1, INPUT_DIM], Distribution::Default, &device);
-        let w = create_random_matrix_custom_dimensions(INPUT_DIM, HIDDEN);
-        let u = create_random_matrix_custom_dimensions(HIDDEN, vocab_size);
+        let w = create_random_matrix(INPUT_DIM, HIDDEN);
+        let u = create_random_matrix(HIDDEN, vocab_size);
 
         group.bench_with_input(
             BenchmarkId::new("vocab", vocab_size),
@@ -33,8 +33,8 @@ fn bench_train_step(c: &mut Criterion) {
     for &vocab_size in &[1_000usize, 10_000, 50_000] {
         let x = Tensor::<Backend, 2>::random([1, INPUT_DIM], Distribution::Default, &device);
         let y = Tensor::<Backend, 1>::zeros([vocab_size], &device);
-        let w = create_random_matrix_custom_dimensions(INPUT_DIM, HIDDEN).require_grad();
-        let u = create_random_matrix_custom_dimensions(HIDDEN, vocab_size).require_grad();
+        let w = create_random_matrix(INPUT_DIM, HIDDEN).require_grad();
+        let u = create_random_matrix(HIDDEN, vocab_size).require_grad();
 
         group.bench_with_input(
             BenchmarkId::new("vocab", vocab_size),

@@ -20,7 +20,7 @@ impl<'a> Word2Vec<'a> {
     }
 
     pub fn train_naive(&mut self, corpus: &[usize], unigram: &[usize], batch_size: usize) {
-        let unigram_sum: usize = unigram.iter().sum();
+        let (cum, sum) = build_cumulative(unigram); // computed once, not per sample
 
         let mut pairs: Vec<(usize, usize)> = Vec::new();
         for i in self.window_size..(corpus.len() - self.window_size) {
@@ -34,10 +34,11 @@ impl<'a> Word2Vec<'a> {
         }
 
         for chunk in pairs.chunks(batch_size) {
-            self.train_batch(chunk, unigram, unigram_sum);
+            self.train_batch(chunk, &cum, sum);
         }
     }
-    fn train_batch(&mut self, pairs: &[(usize, usize)], unigram: &[usize], unigram_sum: usize) {
+
+    fn train_batch(&mut self, pairs: &[(usize, usize)], cum: &[usize], sum: usize) {
         let device = self.target_matrix.device();
         let n = pairs.len();
 
@@ -55,9 +56,9 @@ impl<'a> Word2Vec<'a> {
         let mut neg_idx: Vec<i64> = Vec::with_capacity(n * self.k);
         for &(target, _) in pairs {
             for _ in 0..self.k {
-                let mut c_neg = get_weighted_index(unigram, unigram_sum);
+                let mut c_neg = sample_negative(cum, sum);
                 while c_neg == target {
-                    c_neg = get_weighted_index(unigram, unigram_sum);
+                    c_neg = sample_negative(cum, sum);
                 }
                 neg_idx.push(c_neg as i64);
             }
@@ -169,15 +170,22 @@ fn get_row(m: &Tensor<Backend, 2>, idx: usize) -> Tensor<Backend, 1> {
     m.clone().slice([idx..idx + 1, 0..dim]).squeeze().detach()
 }
 
-fn get_weighted_index(unigram: &[usize], sum: usize) -> usize {
-    let mut target = rand::random_range(0..sum);
-    for (index, &weight) in unigram.iter().enumerate() {
-        if target < weight {
-            return index;
-        }
-        target -= weight;
+/// Builds a cumulative-sum array from unigram counts, once, for fast weighted sampling.
+fn build_cumulative(unigram: &[usize]) -> (Vec<usize>, usize) {
+    let mut cum = Vec::with_capacity(unigram.len());
+    let mut running = 0usize;
+    for &w in unigram {
+        running += w;
+        cum.push(running);
     }
-    unigram.len().saturating_sub(1)
+    (cum, running)
+}
+
+/// Draws a weighted-random index in O(log vocab_size) via binary search,
+/// instead of the old O(vocab_size) linear scan.
+fn sample_negative(cum: &[usize], sum: usize) -> usize {
+    let target = rand::random_range(0..sum);
+    cum.partition_point(|&c| c <= target)
 }
 
 pub fn build_model<'a>(

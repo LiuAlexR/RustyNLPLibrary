@@ -18,3 +18,11 @@ harness = false
 [[bench]]
 name = "word2vec_bench"
 harness = false
+
+[[bench]]
+name = "attention_bench"
+harness = false
+
+[[bench]]
+name = "perplexity_bench"
+harness = false

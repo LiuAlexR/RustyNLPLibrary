@@ -52,6 +52,44 @@ pub struct Block {
     w_ffn_o: Tensor<Backend, 2>,    // [ffxd]
 }
 
+pub fn evaluate_perplexity(
+    tokens: &[String],
+    model: &Transformer,
+    context_window: usize,
+    batch_size: usize,
+    map: &HashMap<String, i64>,
+) -> f64 {
+    let (v, t) = create_batches(
+        tokens,
+        context_window,
+        batch_size,
+        model.E.clone(),
+        map,
+        &model.pad_token,
+        model.d,
+    );
+
+    let mut total_loss = 0.0;
+    let mut count = 0;
+
+    for (x, y) in v.into_iter().zip(t.into_iter()) {
+        let logits = transformer_forward_pass(x, model);
+        let [batch, len, vocab] = logits.dims();
+        let logits = logits.reshape([batch * len, vocab]);
+        let targets = y.reshape([batch * len]);
+
+        let loss = CrossEntropyLossConfig::new()
+            .with_pad_tokens(Some(vec![model.pad_id]))
+            .init(&logits.device())
+            .forward(logits, targets);
+
+        total_loss += loss.into_scalar() as f64;
+        count += 1;
+    }
+
+    (total_loss / count as f64).exp()
+}
+
 // implementing nucleus sampling
 pub fn predict(
     prompt: &[String],
@@ -149,9 +187,15 @@ pub fn train(
         model.d,
     );
 
+    let mut i = 0;
+    let total = v.len();
     for (x, y) in v.into_iter().zip(t.into_iter()) {
         let o = transformer_forward_pass(x, model);
         transformer_backward_pass(o, y, model, learning_rate);
+        i += 1;
+        if i % 10 == 0 {
+            println!("batch {i}/{total}");
+        }
     }
 }
 
@@ -179,7 +223,7 @@ pub fn init_transformer(
     }
 }
 
-fn transformer_backward_pass(
+pub fn transformer_backward_pass(
     logits: Tensor<Backend, 3>,
     targets: Tensor<Backend, 2, Int>,
     model: &mut Transformer,
@@ -224,7 +268,10 @@ fn transformer_backward_pass(
     }
 }
 
-fn transformer_forward_pass(mut X: Tensor<Backend, 3>, model: &Transformer) -> Tensor<Backend, 3> {
+pub fn transformer_forward_pass(
+    mut X: Tensor<Backend, 3>,
+    model: &Transformer,
+) -> Tensor<Backend, 3> {
     for block in &model.blocks {
         X = run_block(X, block, model.d, model.num_heads);
     }

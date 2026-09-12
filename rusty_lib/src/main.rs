@@ -12,7 +12,7 @@ use rusty_lib::{
 };
 
 fn main() {
-    let corpus: String = retrieve_source("orwell_1984.txt");
+    let corpus: String = retrieve_source("tinystories_sample.txt");
 
     let num_merges: u64 = 2000;
     let d: usize = 64;
@@ -33,10 +33,9 @@ fn main() {
     // 1. Build vocab, tokenize
     let vocab: Vec<String> = bpe_tokenize(&corpus, num_merges, false);
     let tokens: Vec<String> = bpe_encoder(&vocab, &corpus);
-    let elapsed = start.elapsed();
-
     println!("Took {:?} s to tokenize", start.elapsed().as_secs());
 
+    let start = Instant::now();
     // 2. Pretrain embeddings with Word2Vec — this also gives us the vocab map
     let corpus_indices: Vec<usize> = text_to_indices(&vocab, &tokens);
     let unigram: Vec<usize> = unigram_creation(vocab.len(), &corpus_indices);
@@ -44,7 +43,6 @@ fn main() {
     let (mut w2v, map) = build_model(&vocab, d, w2v_window, w2v_negatives, w2v_lr);
     w2v.train_naive(&corpus_indices, &unigram, w2v_batch_size);
 
-    let start = Instant::now();
     let e = w2v.embedding_matrix().require_grad();
 
     println!(
@@ -95,7 +93,7 @@ fn main() {
         }
 
         let prompt_tokens = bpe_encoder(&vocab, &input.to_string());
-        let output = predict(&prompt_tokens, context_window, &map, &model, &vocab, 1);
+        let output = predict(&prompt_tokens, context_window, &map, &model, &vocab, 20);
         println!("{output}");
     }
 }

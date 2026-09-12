@@ -1,20 +1,13 @@
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use rusty_lib::components::tokenizer::{bpe_encoder, bpe_tokenize, text_to_indices};
 use rusty_lib::components::w2v::build_model;
 use rusty_lib::util;
 
 fn build_bpe_vocab_and_corpus(text: &str, num_tokens: u64) -> (Vec<String>, Vec<usize>) {
-    // only_new: false, so we get the FULL vocabulary (128 ASCII chars + all
-    // learned merges), since bpe_encoder needs the full vocab to rank merges
     let vocabulary: Vec<String> = bpe_tokenize(text, num_tokens, false);
-
-    // bpe_encoder actually tokenizes the text using that vocabulary
     let text_owned = text.to_string();
     let encoded: Vec<String> = bpe_encoder(&vocabulary, &text_owned);
-
-    // Convert token strings to their vocab indices for training
     let corpus: Vec<usize> = text_to_indices(&vocabulary, &encoded);
-
     (vocabulary, corpus)
 }
 
@@ -39,36 +32,36 @@ fn run_quality_eval(vocab: &[String], corpus: &[usize]) {
         corpus.len()
     );
 
-    let model = build_model(vocab, 128, 2, 5, 0.025);
+    let (model, _map) = build_model(vocab, 128, 2, 5, 0.025);
 
-    // Still needs real analogy token indices — placeholder until you pick
-    // real analogy pairs present in the BPE vocabulary
     let analogies: Vec<(usize, usize, usize, usize)> = vec![];
     if !analogies.is_empty() {
         let acc = analogy_accuracy(&model, &analogies);
         println!("Analogy accuracy: {:.2}%", acc * 100.0);
     }
 }
-
-// Mirrors train_naive's pair-generation loop exactly, just to get a count
 fn count_pairs(corpus_len: usize, window_size: usize) -> usize {
     if corpus_len <= 2 * window_size {
         return 0;
     }
     let valid_positions = corpus_len - 2 * window_size;
-    valid_positions * 2 * window_size // 2*window_size pairs per valid position
+    valid_positions * 2 * window_size
 }
 
 fn bench_train_batched(c: &mut Criterion) {
-    let text = util::retrieve_source("orwell_1984.txt");
-    let num_tokens = 1000;
+    let full_text = util::retrieve_source("tinystories_sample.txt");
+    // small slice — train_naive runs inside criterion's repeated-iteration loop,
+    // so this needs to stay fast per iteration, not reflect the full training corpus
+    let text: String = full_text.chars().take(200_000).collect();
+
+    let num_tokens = 2000; // match your real num_merges
     let (vocab, corpus) = build_bpe_vocab_and_corpus(&text, num_tokens);
     run_quality_eval(&vocab, &corpus);
 
-    let window_size = 2; // must match the window_size passed to build_model below
-    let k = 5; // must match the num_of_negs passed to build_model below
+    let window_size = 2;
+    let k = 5;
     let num_pairs = count_pairs(corpus.len(), window_size);
-    let embeddings_per_pair = 2 + k; // 1 target + 1 positive context + k negative contexts
+    let embeddings_per_pair = 2 + k;
     let total_embedding_updates = num_pairs * embeddings_per_pair;
 
     println!("Corpus length: {}", corpus.len());
@@ -81,10 +74,11 @@ fn bench_train_batched(c: &mut Criterion) {
 
     c.bench_function("word2vec_train_batch128", |b| {
         b.iter(|| {
-            let mut model = build_model(&vocab, 128, 2, 5, 0.025);
+            let (mut model, _map) = build_model(&vocab, 128, 2, 5, 0.025);
             model.train_naive(&corpus, &unigram, batch_size);
         });
     });
 }
+
 criterion_group!(benches, bench_train_batched);
 criterion_main!(benches);

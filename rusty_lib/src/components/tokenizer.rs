@@ -22,101 +22,41 @@ use burn::Tensor;
 /// # Examples
 ///
 /// `let vocab = bpe_tokenize(corpus, 5000, true);`
-// pub fn bpe_tokenize(corpus: &str, num_tokens: u64, only_new: bool) -> Vec<String> {
-//     let mut vocabulary: Vec<String> = (0..128).map(|b: u8| (b as char).to_string()).collect();
-//
-//     let mut new_vocab: Vec<String> = Vec::default();
-//     let arr: Vec<char> = corpus.chars().collect();
-//     let (token, mut map) = combine(&arr);
-//
-//     if only_new {
-//         new_vocab.push(token.clone());
-//     }
-//     vocabulary.push(token);
-//
-//     for _ in 1..num_tokens {
-//         let token = combine_with_index(&arr, &vocabulary, &mut map);
-//
-//         if let Some(token) = token {
-//             if only_new {
-//                 new_vocab.push(token.clone());
-//             }
-//             vocabulary.push(token);
-//         }
-//     }
-//     vocabulary.push("<PADD>".to_string());
-//
-//     if only_new {
-//         new_vocab
-//     } else {
-//         vocabulary
-//     }
-// }
-pub fn bpe_tokenize(
-    corpus: &str,
-    num_tokens: u64,
-    only_new: bool,
-) -> Vec<String> {
+use std::collections::{ HashSet};
 
-    let mut vocabulary: Vec<String> = (0..128).map(|b: u8| (b as char).to_string()).collect();
+pub fn bpe_tokenize(corpus: &str, num_tokens: u64, only_new: bool) -> Vec<String> {
+    // seed vocab from actual corpus characters (fixes the out-of-vocab panic),
+    // still guaranteeing full ASCII coverage as a baseline
+    let mut char_set: std::collections::BTreeSet<char> =
+        (0..128u8).map(|b| b as char).collect();
+    char_set.extend(corpus.chars());
 
-    let mut new_vocab = Vec::new();
+    let mut vocabulary: Vec<String> = char_set.into_iter().map(|c| c.to_string()).collect();
+    let mut vocab_set: HashSet<String> = vocabulary.iter().cloned().collect();
 
-    let mut corpus_tokens: Vec<Vec<String>> = corpus
-        .split_whitespace()
-        .map(|word| {
-            std::iter::once(" ".to_string())
-                .chain(word.chars().map(String::from))
-                .collect()
-        })
-        .collect();
+    let mut new_vocab: Vec<String> = Vec::default();
+    let arr: Vec<char> = corpus.chars().collect();
+    let (token, mut map) = combine(&arr);
 
-    for _ in 0..num_tokens {
-        let mut pair_counts: HashMap<(String, String), u64> = HashMap::new();
+    if only_new {
+        new_vocab.push(token.clone());
+    }
+    vocab_set.insert(token.clone());
+    vocabulary.push(token);
 
-        // Count all adjacent pairs.
-        for tokens in &corpus_tokens {
-            for i in 0..tokens.len().saturating_sub(1) {
-                let pair = (
-                    tokens[i].clone(),
-                    tokens[i + 1].clone(),
-                );
+    for _ in 1..num_tokens {
+        let token = combine_with_index(&arr, &vocabulary, &vocab_set, &mut map);
 
-                *pair_counts.entry(pair).or_insert(0) += 1;
+        if let Some(token) = token {
+            if only_new {
+                new_vocab.push(token.clone());
             }
-        }
-
-        // Most frequent pair.
-        let Some(((left, right), _)) =
-            pair_counts.into_iter().max_by_key(|(_, count)| *count)
-        else {
-            break;
-        };
-
-        let merged = format!("{}{}", left, right);
-
-        vocabulary.push(merged.clone());
-
-        if only_new {
-            new_vocab.push(merged.clone());
-        }
-
-        // Merge this pair everywhere in the corpus.
-        for tokens in &mut corpus_tokens {
-            let mut i = 0;
-
-            while i + 1 < tokens.len() {
-                if tokens[i] == left && tokens[i + 1] == right {
-                    tokens[i] = merged.clone();
-                    tokens.remove(i + 1);
-                } else {
-                    i += 1;
-                }
-            }
+            vocab_set.insert(token.clone());
+            vocabulary.push(token);
         }
     }
-
     vocabulary.push("<PADD>".to_string());
+    vocabulary.push("<|endoftext|>".to_string());
 
     if only_new {
         new_vocab
@@ -125,11 +65,10 @@ pub fn bpe_tokenize(
     }
 }
 
-
-// takes last token added and goes through its indices vector to create new tokens
 fn combine_with_index(
     arr: &[char],
     vocabulary: &[String],
+    vocab_set: &HashSet<String>,
     map: &mut HashMap<String, (u64, Vec<u64>)>,
 ) -> Option<String> {
     if map.is_empty() {
@@ -137,7 +76,6 @@ fn combine_with_index(
     }
 
     let len = arr.len() as u64;
-
     let token = vocabulary.last().unwrap();
 
     let (_, indices) = map.get(token).unwrap();
@@ -148,7 +86,7 @@ fn combine_with_index(
             continue;
         }
 
-        let largest_token = find_largest_token(arr, i + 1, vocabulary);
+        let largest_token = find_largest_token(arr, i + 1, vocab_set);
 
         let x = token.to_owned() + &largest_token;
         let index = i + largest_token.len() as u64;
@@ -171,6 +109,27 @@ fn combine_with_index(
     Some(x)
 }
 
+fn find_largest_token(arr: &[char], mut idx: u64, vocab_set: &HashSet<String>) -> String {
+    let mut token = String::default();
+    let len = arr.len() as u64;
+
+    token.push(arr[idx as usize]);
+
+    loop {
+        if !vocab_set.contains(&token) {
+            break;
+        }
+        idx += 1;
+
+        if idx == len || arr[idx as usize] == '\n' || arr[idx as usize] == ' ' {
+            return token;
+        }
+
+        token.push(arr[idx as usize]);
+    }
+    token.pop();
+    token
+}
 // Generate all possible two letter tokens
 // TODO spaces can be the beginning of a token but not end
 fn combine(arr: &[char]) -> (String, HashMap<String, (u64, Vec<u64>)>) {
@@ -299,28 +258,6 @@ pub fn co_occurence(input: &[String], vocab: &[String], context_window: usize) -
     matrix
 }
 
-fn find_largest_token(arr: &[char], mut idx: u64, vocabulary: &[String]) -> String {
-    let mut token = String::default();
-    let len = arr.len() as u64;
-
-    token.push(arr[idx as usize]);
-
-    loop {
-        let x = vocabulary.iter().find(|&y| *y == token);
-        if x.is_none() {
-            break;
-        }
-        idx += 1;
-
-        if idx == len || arr[idx as usize] == '\n' || arr[idx as usize] == ' ' {
-            return token;
-        }
-
-        token.push(arr[idx as usize]);
-    }
-    token.pop();
-    token
-}
 pub fn bpe_encoder(vocabulary: &Vec<String>, text: &String) -> Vec<String> {
     // Pairs each string with corresponding idx in vocab
     // Earlier strings in vocab occur more than later ones,
