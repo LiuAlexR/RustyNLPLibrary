@@ -12,7 +12,7 @@ use rusty_lib::{
 };
 
 fn main() {
-    let corpus: String = retrieve_source("tinystories_sample.txt");
+    let corpus: String = retrieve_source("TinyStories.txt");
 
     let num_merges: u64 = 2000;
     let d: usize = 64;
@@ -22,12 +22,12 @@ fn main() {
     let context_window: usize = 64;
     let batch_size: usize = 64;
     let learning_rate: f64 = 1e-3;
-    let num_epochs: usize = 5;
+    let num_epochs: usize = 1;
 
     let w2v_window: usize = 5;
     let w2v_negatives: usize = 5;
     let w2v_lr: f64 = 0.025;
-    let w2v_batch_size: usize = 512;
+    let w2v_batch_size: usize = 4096;
 
     let start = Instant::now();
     // 1. Build vocab, tokenize
