@@ -1,12 +1,12 @@
-use std::{cmp::Reverse, collections::HashMap};
+use std::collections::HashMap;
 
 use crate::{
     components::neural_net::{forward_pass, use_gelu},
-    math::{create_random_matrix, create_random_vector, Backend},
+    math::{create_random_matrix, Backend},
 };
 use burn::{
     nn::loss::CrossEntropyLossConfig,
-    tensor::{activation::softmax, cast::ToElement, Bool, Int, TensorData},
+    tensor::{activation::softmax, Bool, Int, TensorData},
     Tensor,
 };
 use rand::distr::weighted::WeightedIndex;
@@ -189,12 +189,16 @@ pub fn train(
 
     let mut i = 0;
     let total = v.len();
+    let mut r = 0.0;
+
     for (x, y) in v.into_iter().zip(t.into_iter()) {
         let o = transformer_forward_pass(x, model);
-        transformer_backward_pass(o, y, model, learning_rate);
+        let l = transformer_backward_pass(o, y, model, learning_rate);
+        r += l;
         i += 1;
         if i % 10 == 0 {
-            println!("batch {i}/{total}");
+            println!("batch {i}/{total}, avg loss: {:.4}", r / 10.);
+            r = 0.0;
         }
     }
 }
@@ -228,7 +232,7 @@ pub fn transformer_backward_pass(
     targets: Tensor<Backend, 2, Int>,
     model: &mut Transformer,
     lr: f64,
-) {
+) -> f64 {
     let [batch, len, vocab] = logits.dims();
     let logits = logits.reshape([batch * len, vocab]);
     let targets = targets.reshape([batch * len]);
@@ -238,8 +242,7 @@ pub fn transformer_backward_pass(
         .init(&logits.device())
         .forward(logits, targets);
 
-    // println!("loss: {}", loss.clone().into_scalar());
-
+    let v = loss.clone().into_scalar() as f64;
     let grads = loss.backward();
 
     macro_rules! update {
@@ -266,6 +269,7 @@ pub fn transformer_backward_pass(
         update!(block.w_ffn_h);
         update!(block.w_ffn_o);
     }
+    v
 }
 
 pub fn transformer_forward_pass(
@@ -437,51 +441,77 @@ fn create_batches(
 ) -> (Vec<Tensor<Backend, 3>>, Vec<Tensor<Backend, 2, Int>>) {
     let device = embedding_matrix.device();
     let n = tokens.len();
+    let pad_id = map[pad_token];
 
-    // computed once — every chunk is padded to context_window, so this is reused as-is
-    let pos_emb = generate_positional_embeddings(context_window, d);
-
-    let mut sequences: Vec<Tensor<Backend, 2>> = Vec::new();
-    let mut target_sequences: Vec<Tensor<Backend, 1, Int>> = Vec::new();
-
+    // 1. Figure out chunk boundaries first (cheap, no tensor ops)
+    let mut starts = Vec::new();
     let mut start = 0;
     while start < n {
-        let end = (start + context_window).min(n);
+        starts.push(start);
+        start += context_window;
+    }
+    let num_chunks = starts.len();
 
-        let mut chunk_tokens = tokens[start..end].to_vec();
-        while chunk_tokens.len() < context_window {
-            chunk_tokens.push(pad_token.to_string());
+    // 2. Build ALL input ids and ALL target ids as flat Vec<i64> up front —
+    //    no tensor ops yet, pure CPU work
+    let mut all_input_ids: Vec<i64> = Vec::with_capacity(num_chunks * context_window);
+    let mut all_target_ids: Vec<i64> = Vec::with_capacity(num_chunks * context_window);
+
+    for &start in &starts {
+        let end = (start + context_window).min(n);
+        for tok in &tokens[start..end] {
+            all_input_ids.push(map[tok]);
+        }
+        for _ in end..start + context_window {
+            all_input_ids.push(pad_id);
         }
 
         let target_start = (start + 1).min(n);
         let target_end = (target_start + context_window).min(n);
-        let mut target_tokens = tokens[target_start..target_end].to_vec();
-        while target_tokens.len() < context_window {
-            target_tokens.push(pad_token.to_string());
+        for tok in &tokens[target_start..target_end] {
+            all_target_ids.push(map[tok]);
         }
-
-        let embedded =
-            generate_combined_embeddings(&chunk_tokens, map, embedding_matrix.clone(), &pos_emb);
-        sequences.push(embedded);
-
-        let target_ids: Vec<i64> = target_tokens.iter().map(|t| map[t]).collect();
-        let target_tensor = Tensor::<Backend, 1, Int>::from_data(
-            TensorData::new(target_ids, [context_window]),
-            &device,
-        );
-        target_sequences.push(target_tensor);
-
-        start += context_window;
+        for _ in target_end..target_start + context_window {
+            all_target_ids.push(pad_id);
+        }
     }
 
-    let input_batches = sequences
-        .chunks(batch_size)
-        .map(|group| Tensor::stack::<3>(group.to_vec(), 0))
+    // 3. ONE select() call for every input embedding in the corpus
+    let input_indices = Tensor::<Backend, 1, Int>::from_data(
+        TensorData::new(all_input_ids, [num_chunks * context_window]),
+        &device,
+    );
+    let word_embeds = embedding_matrix.select(0, input_indices); // [num_chunks*context_window, d]
+    let word_embeds = word_embeds.reshape([num_chunks, context_window, d]);
+
+    // 4. Positional embeddings computed once, broadcast-added to every chunk in one op
+    let pos_emb = generate_positional_embeddings(context_window, d).unsqueeze::<3>(); // [1, context_window, d]
+    let all_embedded = word_embeds.add(pos_emb); // [num_chunks, context_window, d], one op
+
+    // 5. ONE tensor for all targets
+    let all_targets = Tensor::<Backend, 1, Int>::from_data(
+        TensorData::new(all_target_ids, [num_chunks * context_window]),
+        &device,
+    )
+    .reshape([num_chunks, context_window]);
+
+    // 6. Split into batches — these are just view/slice ops, cheap
+    let input_batches = (0..num_chunks)
+        .step_by(batch_size)
+        .map(|i| {
+            let end = (i + batch_size).min(num_chunks);
+            all_embedded
+                .clone()
+                .slice([i..end, 0..context_window, 0..d])
+        })
         .collect();
 
-    let target_batches = target_sequences
-        .chunks(batch_size)
-        .map(|group| Tensor::stack::<2>(group.to_vec(), 0))
+    let target_batches = (0..num_chunks)
+        .step_by(batch_size)
+        .map(|i| {
+            let end = (i + batch_size).min(num_chunks);
+            all_targets.clone().slice([i..end, 0..context_window])
+        })
         .collect();
 
     (input_batches, target_batches)
